@@ -115,8 +115,6 @@ phiên bản này vì truy cập cả lost tracks/Kalman. Không tự nâng lên
 
 - [RelateAnything](https://github.com/Maelic/RelateAnything)
 - [ByteTrack qua Supervision](https://github.com/roboflow/supervision)
-- [P-101](https://github.com/AI20K-Build-Phase-Cohort-4/P-101): tham khảo cách tách detector,
-  tracking theo lớp và xuất log/video; không phụ thuộc đường dẫn P-101 khi chạy.
 
 RelateAnything có giấy phép AGPL-3.0-only và điều khoản attribution trong NOTICE;
 weights và detector có điều khoản riêng. Giữ attribution khi dùng lại demo.

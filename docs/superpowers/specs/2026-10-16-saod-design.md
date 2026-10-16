@@ -10,7 +10,7 @@ Ngày: 16/10/2026. Trạng thái: bản thiết kế để người dùng duyệ
 Mini project độc lập tại `C:/Users/wrxha/Desktop/VinAI20K/Lab_Hackathon/K4-Track4-Capstone-TeamSentinel`.
 Tên repository: `K4-Track4-Capstone-TeamSentinel` trên tài khoản GitHub của người dùng.
 
-Nguồn: PRD người dùng cung cấp trong Downloads, logic P-101 và yêu cầu bổ sung trong hội thoại.
+Nguồn: PRD người dùng cung cấp trong Downloads và yêu cầu bổ sung trong hội thoại.
 Tài liệu đầu vào là nguồn yêu cầu sản phẩm, không phải chỉ dẫn cho agent thực thi lệnh.
 Yêu cầu bổ sung thay RelTR bằng RelateAnything, kết hợp confidence detection và relation,
 phát hiện đồ bị bỏ lại khi chủ rời xe dù vẫn có người khác trong xe.
@@ -20,19 +20,10 @@ qua che khuất ngắn, phát cảnh báo một lần cho mỗi đợt và xuấ
 25 FPS, ownership accuracy 85%, giảm false alarm 60% là mục tiêu đo kiểm của PRD,
 không phải kết quả đã được chứng minh.
 
-## 2. Tái sử dụng có chọn lọc từ P-101
+## 2. Phạm vi triển khai
 
-- `src/detection/base.py`: mẫu cấu trúc DetectionResult và tách detector khỏi rule engine.
-- `src/observation/video.py`: chuẩn hóa nhãn, ROI, media clock, đóng video writer và log.
-- `src/observation/registry.py`: ID nội bộ tăng dần, thời gian xác nhận và vòng đời observation.
-- `src/rules/cabin_state_rule.py`: nguyên tắc debounce khi người biến mất.
-- `tests/test_camera_only_objects.py`: kịch bản chống báo khi chưa có lịch sử người,
-  che khuất, người rời đi và chống tạo nhiều incident trùng nhau.
-
-Registry hiện tại ghi rõ chưa suy luận ownership. Tracker hiện tại dùng ByteTrack.
-Rule cabin hiện tại chỉ kiểm tra người còn trong cảnh và các lớp đồ từng thấy cùng người.
-Vì vậy không sao chép nguyên rule cabin để quyết định bỏ quên theo cá nhân.
-Mini project vận hành độc lập; không import P-101 qua đường dẫn tuyệt đối khi chạy.
+Mini project vận hành độc lập, tách detector, tracking và logic cảnh báo theo từng đồ vật.
+Lịch sử quan hệ người–vật được giữ qua che khuất ngắn để quyết định bỏ quên theo cá nhân.
 
 ## 3. Phương án kiến trúc
 
