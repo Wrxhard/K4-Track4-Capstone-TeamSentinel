@@ -13,8 +13,12 @@ Hiện có bản thiết kế để duyệt. Chưa có runtime, model weights ho
 
 ## Luồng dự kiến
 
-Video/webcam/RTSP → YOLO + BoT-SORT → RelateAnything → fusion theo cặp người–đồ vật
+Video/webcam/RTSP → RF-DETR → ByteTrack (Kalman filter) → RelateAnything → fusion theo cặp người–đồ vật
 → state machine từng đồ vật → cảnh báo, ảnh bằng chứng và log.
+
+RelateAnything chấm quan hệ trên box của RF-DETR, không tự phát hiện đồ vật.
+ByteTrack giữ ID và dùng Kalman để dự đoán track mất dấu ngắn; baseline không có
+appearance Re-ID. BoT-SORT + Re-ID là lựa chọn nâng cấp riêng khi cần.
 
 Ca trọng tâm: chủ sở hữu rời xe nhưng người khác vẫn còn bên trong; sự hiện diện của
 người khác không tự chặn cảnh báo đồ bị bỏ lại. Quan hệ yếu không đủ để đổi chủ,

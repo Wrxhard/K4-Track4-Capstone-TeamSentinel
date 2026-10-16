@@ -33,7 +33,12 @@ Mini project vận hành độc lập; không import P-101 qua đường dẫn t
 
 ## 3. Phương án kiến trúc
 
-Chọn YOLO + BoT-SORT cho luồng detection/tracking và RelateAnything worker theo sự kiện.
+Theo yêu cầu cập nhật: chọn RF-DETR cho detection, ByteTrack cho tracking và
+RelateAnything worker theo sự kiện. ByteTrack dùng Kalman filter nội bộ để dự đoán
+trạng thái chuyển động của track và ghép detection qua các frame; không chạy thêm
+một Kalman filter song song làm nguồn tọa độ cạnh tranh.
+BoT-SORT là backend thay thế nếu về sau cần tích hợp person Re-ID, không chạy nối tiếp
+hai tracker để tạo hai hệ ID. Baseline ByteTrack không có appearance Re-ID.
 So với chỉ dùng khoảng cách, semantic worker bổ sung bằng chứng tương tác.
 So với chạy relation mỗi frame, hàng đợi theo sự kiện giảm tải và cô lập lỗi model.
 Heuristic là chế độ dự phòng được ghi nhãn, không giả làm kết quả RelateAnything.
@@ -49,6 +54,11 @@ Kết quả hết hạn, khác phiên hoặc khác thế hệ track bị loại;
 Nguồn: https://github.com/Maelic/RelateAnything và docs/quickstart.md, kiểm tra ngày 16/10/2026.
 API dùng ảnh và box XYXY theo pixel ảnh gốc, trả triplet có subject_idx/object_idx.
 Giữ mapping box index → track ID ở snapshot; không cần bước IoU nối hai detector như RelTR.
+RelateAnything không tự phát hiện đồ vật. Demo upstream có detector riêng;
+trong mini project RF-DETR cung cấp các box đó. Một đồ được RF-DETR phát hiện
+không cần được một detector thứ hai trong RelateAnything phát hiện lại.
+Nếu RF-DETR bỏ sót đồ, relation model không tạo thêm box để khắc phục; Kalman chỉ
+dự đoán track đã biết trong khoảng mất dấu ngắn, không phát hiện vật thể mới.
 Môi trường dự kiến Python 3.12 riêng để đáp ứng quickstart upstream.
 Checkpoint khởi điểm: `maelic/relsgg-vits16plus`; ghi phiên bản/commit thực tế khi cài.
 
@@ -125,7 +135,15 @@ Không tự đổi chủ chỉ vì một người khác bước tới đứng g�
 
 ## 7. Che khuất và đồng hồ
 
-BoT-SORT bật person Re-ID theo khả năng runtime thực tế; báo rõ nếu không tải được backend.
+ByteTrack + Kalman là baseline: dự đoán motion, ghép box confidence cao rồi thấp,
+giữ track mất dấu tạm thời trong buffer cấu hình được. Ghép theo lớp hoặc kiểm tra
+lớp khi matching để không nối nhầm person với đồ vật có box chồng lấn.
+Kalman dự đoán không phải detection thật: lưu observed_now=false, không tạo
+confidence detector giả và không dùng predicted box làm bằng chứng ownership mới.
+Khi chủ mất dấu lâu hoặc giao cắt, ByteTrack vẫn có thể đổi ID; không cam kết khôi phục
+danh tính bằng Kalman. Lưu trạng thái mơ hồ và không tự chuyển chủ sang người gần nhất.
+BoT-SORT + appearance Re-ID là lựa chọn nâng cấp riêng sau khi kiểm thử ID switch,
+báo rõ backend đang chạy; không khẳng định baseline ByteTrack đáp ứng person Re-ID của PRD.
 Đồ đang tĩnh mất detection và bị người khác che: giữ box cuối trong tối đa khoảng 10 giây.
 Khoảng giữ tính theo giây; quy đổi buffer frame theo FPS đầu vào khi tracker cần frame count.
 Thử nối lại ID đồ theo lớp, vị trí và thời gian, chỉ khi match duy nhất; không ghép hai đồ gần nhau
@@ -148,7 +166,9 @@ Alert có run_id, alert_id, timestamp, object_id, owner_id, bbox, class_name, re
 owner_confidence, pair scores gần nhất, nguồn dữ liệu và đường dẫn evidence thực tế.
 Không khai báo ảnh đã tồn tại nếu ghi file thất bại; ghi lỗi evidence riêng.
 
-config.yaml chứa model/device, lớp đối tượng và alias, ROI, detection thresholds,
+config.yaml chứa RF-DETR model/device/checkpoint, class mapping thực tế từ model
+(không giả định COCO ID khi dùng model fine-tune), tracker backend, ByteTrack thresholds,
+lost buffer, lớp đối tượng và alias, ROI, detection thresholds,
 relation vocabulary/weights, fusion thresholds, candidate radii, motion thresholds,
 T_exit, T_max, occlusion grace, retention, queue limits, retry và output options.
 Kiểm tra giá trị hữu hạn, khoảng hợp lệ và quan hệ giữa ngưỡng xác nhận/ngưỡng giữ.
@@ -163,7 +183,8 @@ Cache ảnh và track hết hạn được thu dọn; giữ evidence cảnh báo
 Test rule engine không phụ thuộc GPU bằng observations và relation fixtures:
 chủ rời nhưng người khác còn lại; chủ quay về; hai chủ với hai đồ; người lạ đi ngang;
 relation thấp, UNKNOWN/top-k thiếu và worker lỗi; tranh chấp ownership;
-che đồ dưới 10 giây, chủ bị che, đồ được lấy đi; ID đổi/reuse; stale worker result;
+che đồ dưới 10 giây, chủ bị che, đồ được lấy đi; Kalman prediction không phải observation;
+ByteTrack không ghép chéo lớp; ID đổi/reuse; stale worker result;
 fallback; một alert mỗi đợt; cleanup và timestamps.
 Integration test video nhỏ xác nhận số frame, overlay, JSON và evidence bằng adapter giả.
 Smoke test model thật riêng nếu môi trường và weights sẵn sàng; phân biệt rõ test giả với thật.
