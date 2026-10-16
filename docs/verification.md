@@ -1,5 +1,17 @@
 # Kết quả kiểm tra — 16/10/2026
 
+## Khung cảnh báo trôi khi đồ không còn được nhìn thấy
+
+Log local phiên 21:44 ghi phone #2 ở trạng thái ABANDONED, observed=false từ 23.43 giây;
+tọa độ Kalman tiếp tục thay đổi. Lớp vẽ cảnh báo trước đây bỏ qua observed nên vẫn
+vẽ khung đỏ trên box dự đoán, kể cả sau khi lớp box thông thường đã ẩn track.
+
+Sửa: khung đỏ chỉ vẽ khi observed=true; box dự đoán của đồ đang di chuyển được ẩn
+ngay từ frame mất dấu đầu. Giữ ID, ownership và lịch sử cảnh báo trong bộ nhớ.
+Test video mô phỏng xác minh khung đỏ biến mất trong các frame 66–70 không có detection,
+hiện lại khi đồ trở lại, giữ cùng object_id/alert_id và chỉ một sự kiện ALERT.
+Kết quả: 41/41 unittest đạt; Ruff check và git diff --check đạt.
+
 ## Mất detection 1–2 frame rồi đổi ID liên tiếp
 
 Tiến trình webcam mở lúc 21:33 chưa nạp bản sửa lưu lúc 21:41. Ngoài ra, replay đoạn

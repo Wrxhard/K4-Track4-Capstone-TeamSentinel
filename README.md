@@ -77,7 +77,9 @@ snapshot ownership có score quan hệ và fused_score riêng. Ngưỡng 0.3 ch�
 
 - ByteTrack ghép detection qua frame; Kalman dự đoán track đang chuyển động.
 - Đồ gần như đứng yên giữ box cuối để hạn chế trôi vị trí.
-- Box vàng ghi `LOST`: track nhớ/dự đoán, không phải detection mới.
+- Box vàng ghi `LOST`: vị trí cuối của đồ đứng yên, không phải detection mới.
+- Ẩn box dự đoán của đồ đang di chuyển khi mất detection. Khung đỏ `ABANDONED`
+  chỉ vẽ khi đang nhìn thấy đồ; lịch sử cảnh báo và ID vẫn được giữ qua mất dấu.
 - Quan hệ cũ có nhãn `stale` và tuổi dữ liệu; không suy luận mới trên box dự đoán.
 - Khi nhìn lại và ghép thành công, dùng lại ID và cập nhật quan hệ.
 - Hết khoảng giữ thì bỏ track. ByteTrack không có appearance Re-ID nên có thể đổi ID

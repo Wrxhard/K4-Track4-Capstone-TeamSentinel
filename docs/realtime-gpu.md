@@ -53,7 +53,9 @@ Giữ track mất dấu trong logic nhưng không vẽ người đã mất dấu
 Box đồ mất dấu chồng >= 50% diện tích box nhỏ hơn với observation mới cùng lớp
 được ẩn ở overlay; không tự gộp ownership hoặc đổi ID người dựa vào việc chồng box.
 Box mất dấu có chữ LOST màu vàng, nền nhãn tối dễ đọc; không khẳng định mọi mất dấu
-đều là che khuất. Track di chuyển mất dấu > 1 giây không còn vẽ bóng dự đoán.
+đều là che khuất. Track di chuyển mất dấu không vẽ bóng dự đoán ngay từ frame đầu.
+Khung đỏ ABANDONED chỉ xuất hiện trên track observed=true; cảnh báo trong lịch sử
+không có nghĩa là đồ vẫn đang được nhìn thấy.
 Đồ đứng yên thật vẫn được giữ theo hold-seconds; chỉ phát cảnh báo mới khi thấy lại.
 
 ## Phục hồi ID sau che khuất

@@ -36,6 +36,79 @@ class FakeModels:
 
 
 class DemoTests(unittest.TestCase):
+    def test_moving_lost_prediction_is_not_drawn_even_for_one_frame(self):
+        lost = Track(
+            1, "phone", (100, 100, 140, 180), 0.9, 1, observed=False, stationary=False
+        )
+        self.assertEqual(display_tracks([lost], 1.03), [])
+
+    def test_abandoned_overlay_hides_during_loss_and_returns_with_same_alert(self):
+        from simulate import Scenario
+
+        class MovingThenHidden(Scenario):
+            def detect(self, frame):
+                detections = super().detect(frame)
+                if 66 <= self.frame <= 70:
+                    return [d for d in detections if d.label != "backpack"]
+                shift = min(5, max(0, self.frame - 60)) * 3
+                return [
+                    Detection((210 + shift, 190, 270 + shift, 250), 0.95, d.label)
+                    if d.label == "backpack"
+                    else d
+                    for d in detections
+                ]
+
+        models = MovingThenHidden()
+        red_frames = set()
+        rectangle = cv2.rectangle
+
+        def record_rectangle(image, start, end, color, *args, **kwargs):
+            if color == (40, 40, 240):
+                red_frames.add(models.frame)
+            return rectangle(image, start, end, color, *args, **kwargs)
+
+        with TemporaryDirectory() as tmp:
+            source, output = Path(tmp) / "scenario.mp4", Path(tmp) / "output"
+            writer = cv2.VideoWriter(
+                str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10, (640, 360)
+            )
+            self.assertTrue(writer.isOpened())
+            for _ in range(80):
+                writer.write(np.zeros((360, 640, 3), dtype=np.uint8))
+            writer.release()
+            args = parser().parse_args(
+                [
+                    "--source",
+                    str(source),
+                    "--output",
+                    str(output),
+                    "--relation-every",
+                    "1",
+                    "--no-preview",
+                    "--no-record",
+                ]
+            )
+            with patch("cv2.rectangle", side_effect=record_rectangle):
+                run(args, models)
+            rows = [
+                json.loads(line)
+                for line in (output / "events.jsonl").read_text().splitlines()
+            ]
+            events = [
+                json.loads(line)
+                for line in (output / "alerts.jsonl").read_text().splitlines()
+            ]
+        self.assertIn(60, red_frames)
+        self.assertFalse(red_frames.intersection(range(66, 71)))
+        self.assertIn(75, red_frames)
+        self.assertEqual(len([e for e in events if e["type"] == "ALERT"]), 1)
+        self.assertEqual(
+            rows[59]["objects"][0]["alert_id"], rows[74]["objects"][0]["alert_id"]
+        )
+        self.assertEqual(
+            rows[59]["objects"][0]["object_id"], rows[74]["objects"][0]["object_id"]
+        )
+
     def test_detector_keeps_weak_boxes_for_tracking_association(self):
         from demo import Models
 

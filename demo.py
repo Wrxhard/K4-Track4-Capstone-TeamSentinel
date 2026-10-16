@@ -356,7 +356,7 @@ def display_tracks(tracks, timestamp):
     for track in tracks:
         if track.observed or track.label == "person":
             continue
-        if not track.stationary and timestamp - track.last_seen > 1:
+        if not track.stationary:
             continue
         a = track.bbox
         obscured = False
@@ -641,8 +641,15 @@ def run(args, models=None):
                             )
                 annotated = draw(frame, tracks, edges, timestamp)
                 for obj in objects:
-                    if obj["state"] == "ABANDONED":
-                        box = by_id[obj["object_id"]].bbox
+                    track = by_id.get(obj["object_id"])
+                    if (
+                        obj["state"] == "ABANDONED"
+                        and track is not None
+                        and track.observed
+                    ):
+                        # An active alert is history, not evidence that its object
+                        # is visible. Never draw its red box on a Kalman prediction.
+                        box = track.bbox
                         x1, y1, x2, y2 = map(int, box)
                         cv2.rectangle(annotated, (x1, y1), (x2, y2), (40, 40, 240), 3)
                         cv2.putText(
