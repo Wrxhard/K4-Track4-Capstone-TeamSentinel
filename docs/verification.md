@@ -1,5 +1,33 @@
 # Kết quả kiểm tra — 16/10/2026
 
+## Kiểm tra GPU và sửa mất ID sau che khuất
+
+Đã kiểm tra thực torch 2.11.0+cu128 trên GTX 1650 4 GB; phép nhân tensor CUDA đạt.
+RF-DETR ONNX khởi động bằng CUDAExecutionProvider với onnxruntime-gpu 1.20.2.
+
+Benchmark ảnh horse.jpg upstream, YOLO26 Nano + RelateAnything mỗi frame:
+CPU trước đó 1.45 FPS; GPU có các lần đo 5.0 và 3.85 FPS (10 iteration sau warmup).
+Đây là benchmark ảnh cố định, không phải FPS webcam hoặc kiểm thử độ chính xác.
+Tốc độ dao động theo trạng thái phần cứng; không công bố số cao nhất của sweep là cam kết.
+
+Webcam thật với RF-DETR GPU: 90 frame trong 6.02 giây; cuối phiên window 30 frame
+đạt 19.9 FPS. Cảnh đo không có đồ vật cá nhân, không có relation inference trong phiên này;
+không dùng kết quả đó làm tốc độ full relation pipeline khi có nhiều đồ vật.
+
+Sửa thêm: CPU dispatch threads cấu hình được; RF-DETR yêu cầu CUDA thì báo lỗi nếu
+provider chỉ chạy CPU; giữ handle DLL search path; Kalman đồ đứng yên không trôi khi lost;
+nối lại ID duy nhất và không lấy ID của object đang hiện diện; cho box yếu nối track cũ
+nhưng không tạo track/ownership mới. Log thêm detections để chẩn đoán detector vs tracker.
+
+Kiểm tra cuối sau bản sửa tracking: 33/33 unittest đạt; Ruff check và format check đạt.
+Webcam RF-DETR CUDA chạy lại 90 frame trong 5.24 giây, cửa sổ cuối đạt 23.4 FPS;
+relation_ms = 0 trong cảnh này, nên chưa đại diện tốc độ khi tính quan hệ người–vật.
+Test tự động xác minh vật đứng yên bị che 9 giây rồi trở lại giữ ID, box yếu nối track cũ,
+không lấy ID của vật đang thấy và không gộp hai ứng viên mơ hồ. Chưa tái hiện thao tác
+che vật thực tế của người dùng trước webcam để đánh giá độ chính xác trên cảnh đó.
+
+Phần phía dưới là các báo cáo lịch sử, trước khi xác minh GPU/model thật.
+
 ## Cập nhật cảnh báo + web + webcam launcher
 
 Kết quả cuối: 19/19 unittest đạt; Ruff check và format check đạt.

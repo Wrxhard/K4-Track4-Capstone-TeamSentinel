@@ -8,6 +8,52 @@ def bag(x=100):
 
 
 class TrackingTests(unittest.TestCase):
+    def test_new_object_does_not_take_id_from_same_frame_returning_object(self):
+        tracker = ObjectTracker(fps=30)
+        original = tracker.update([bag(100)], 0)[0]
+        tracker.update([], 0.1)
+        returned = [t for t in tracker.update([bag(100), bag(200)], 0.2) if t.observed]
+        original_now = min(returned, key=lambda t: t.bbox[0])
+        self.assertEqual(original_now.track_id, original.track_id)
+        self.assertEqual(len({t.track_id for t in returned}), 2)
+
+    def test_stationary_object_keeps_id_after_nine_second_occlusion(self):
+        tracker = ObjectTracker(fps=30, hold_seconds=10)
+        for i in range(10):
+            original = tracker.update([bag(100 + i * 0.1)], i / 30)[0]
+        for i in range(10, 280):
+            tracker.update([], i / 30)
+        returned = next(t for t in tracker.update([bag(100.9)], 280 / 30) if t.observed)
+        self.assertEqual(returned.track_id, original.track_id)
+
+    def test_nearby_different_bag_must_not_steal_lost_bag_id(self):
+        tracker = ObjectTracker(fps=30)
+        original = tracker.update([bag(100)], 0)[0]
+        tracker.update([], 0.1)
+        returned = tracker.update([bag(200)], 0.2)
+        new = next(t for t in returned if t.observed)
+        self.assertNotEqual(original.track_id, new.track_id)
+
+    def test_ambiguous_return_between_two_bags_does_not_merge(self):
+        tracker = ObjectTracker(fps=30)
+        originals = tracker.update([bag(100), bag(160)], 0)
+        tracker.update([], 0.1)
+        returned = tracker.update([bag(130)], 0.2)
+        new = next(t for t in returned if t.observed)
+        self.assertNotIn(new.track_id, {t.track_id for t in originals})
+
+    def test_weak_detection_keeps_existing_track_without_creating_noise_track(self):
+        tracker = ObjectTracker(fps=30, new_track_confidence=0.35)
+        original = tracker.update([bag()], 0)[0]
+        weak = Detection(bag().bbox, 0.18, "backpack")
+        returned = tracker.update([weak], 0.1)
+        self.assertEqual(returned[0].track_id, original.track_id)
+        self.assertTrue(returned[0].observed)
+        returned = tracker.update(
+            [weak, Detection((500, 100, 540, 140), 0.18, "backpack")], 0.2
+        )
+        self.assertEqual(len([t for t in returned if t.observed]), 1)
+
     def test_new_detection_after_empty_scene_is_visible_immediately(self):
         tracker = ObjectTracker(fps=30)
         tracker.update([], 0)

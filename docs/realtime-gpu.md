@@ -20,6 +20,12 @@ Nếu chỉ dùng CPU, chọn `-Device cpu`. Nếu chọn cuda mà không có GP
 không âm thầm chuyển sang CPU rồi hiển thị như thể GPU đang chạy.
 Sau khi thay torch, tắt tiến trình demo cũ bằng Ctrl+C và chạy lại.
 
+GTX 1650 của máy này đã kiểm tra được CUDA thực: torch 2.11.0+cu128,
+onnxruntime-gpu 1.20.2, RF-DETR dùng CUDAExecutionProvider.
+RF-DETR không còn âm thầm dùng CPU nếu đã chọn CUDA mà provider không khởi động được.
+PyTorch dùng mặc định 2 thread CPU để điều phối CUDA, có thể điều chỉnh bằng
+`demo.py --cpu-threads N`. Đây là tham số điều phối, không phải số GPU stream.
+
 ## Những điểm gây lag đã xử lý
 
 - Web cũ đổi ảnh mỗi 700 ms: giới hạn khoảng 1.4 ảnh/giây. Preview mới dùng MJPEG
@@ -49,6 +55,26 @@ Box đồ mất dấu chồng >= 50% diện tích box nhỏ hơn với observati
 Box mất dấu có chữ LOST màu vàng, nền nhãn tối dễ đọc; không khẳng định mọi mất dấu
 đều là che khuất. Track di chuyển mất dấu > 1 giây không còn vẽ bóng dự đoán.
 Đồ đứng yên thật vẫn được giữ theo hold-seconds; chỉ phát cảnh báo mới khi thấy lại.
+
+## Phục hồi ID sau che khuất
+
+- Đóng băng mean/velocity Kalman của track đồ đứng yên khi lost, không chỉ đóng băng
+  box vẽ. Tránh dự đoán tiếp làm vị trí track trôi khỏi chỗ đồ thực sự nằm.
+- Tính đầy đủ tập track đang thấy trước khi nối ID, tránh đồ mới lấy ID của đồ
+  khác đang trở lại trong cùng frame.
+- Nếu ByteTrack vẫn tạo native ID mới: chỉ nối với lost track cùng lớp khi IoU >= 0.5,
+  tỷ lệ diện tích trong [0.5, 2] và match duy nhất theo cả hai chiều.
+- Giữ application ID và lịch sử ownership khi nối thành công; loại native lost track
+  đã thay thế để nó không xuất hiện lại thành bản sao.
+- Người chỉ được nối lại bằng geometry trong khoảng 1 giây; không giả làm appearance Re-ID.
+- Detector trả box từ confidence 0.1 để ByteTrack dùng ở bước association. Ngưỡng
+  khởi tạo track mới vẫn theo det-confidence (tối thiểu 0.2); box yếu không tạo
+  đồ giả mới hoặc xác lập ownership mới qua relation inference.
+
+Test gồm che đồ đứng yên 9 giây rồi hiện lại giữ ID; hai đồ gần nhau không lấy nhầm ID;
+đồ mới và đồ cũ trở lại cùng frame không tráo ID; box yếu nối track có sẵn.
+Nếu mất quá hold-seconds hoặc đồ chuyển xa/đổi hình dạng khiến match mơ hồ thì có thể có
+ID mới. Không gộp ID bằng mọi giá vì sẽ gán nhầm chủ.
 
 ## Đối chiếu upstream
 

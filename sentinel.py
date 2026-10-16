@@ -31,7 +31,7 @@ def relation_inputs(tracks):
 
 
 class ObjectTracker:
-    def __init__(self, fps=30, hold_seconds=10):
+    def __init__(self, fps=30, hold_seconds=10, new_track_confidence=0.25):
         if (
             not isfinite(fps)
             or fps <= 0
@@ -40,6 +40,9 @@ class ObjectTracker:
         ):
             raise ValueError("fps and hold_seconds must be finite and positive")
         self.fps, self.hold_seconds = fps, hold_seconds
+        if not isfinite(new_track_confidence) or not 0.2 <= new_track_confidence <= 1:
+            raise ValueError("new_track_confidence must be in [.2, 1]")
+        self.new_track_confidence = new_track_confidence
         self.trackers = {}
         self.memory = {}
         self.next_id = 1
@@ -61,15 +64,17 @@ class ObjectTracker:
                 self.trackers[label] = sv.ByteTrack(
                     frame_rate=self.fps,
                     lost_track_buffer=max(1, round(self.hold_seconds * 30)),
-                    # ByteTrack adds 0.1 for new tracks; accept detector boxes >= .25.
-                    track_activation_threshold=0.15,
+                    # ByteTrack adds 0.1 to this threshold when creating new tracks.
+                    track_activation_threshold=self.new_track_confidence - 0.1,
                 )
             tracker = self.trackers[label]
             tensors = np.array(
                 [(*d.bbox, d.confidence) for d in detections if d.label == label],
                 dtype=np.float32,
             ).reshape(-1, 5)
+            self._freeze_stationary(tracker, label)
             tracker.update_with_tensors(tensors)
+            self._freeze_stationary(tracker, label)
             # A newly seen box is still an observation before track confirmation.
             # Internal IDs exist immediately; external IDs do not until confirmation.
             observed = [
@@ -77,43 +82,15 @@ class ObjectTracker:
                 for item in tracker.tracked_tracks
                 if item.frame_id == tracker.frame_id
             ]
-            visible_ids = set()
+            visible_ids = {int(item.internal_track_id) for item in observed}
+            recovered = self._recover_unique(
+                tracker, label, observed, visible_ids, timestamp
+            )
             for item in observed:
                 local_id = int(item.internal_track_id)
-                visible_ids.add(local_id)
                 key = (label, local_id)
                 box = tuple(float(v) for v in item.tlbr)
-                old = self.memory.get(key)
-                if old is None:
-                    # Spatial / temporal re-identification for returning tracks of same class
-                    lost_candidates = [
-                        (k, v)
-                        for k, v in self.memory.items()
-                        if k[0] == label and k[1] not in visible_ids and k != key
-                    ]
-                    best_match = None
-                    best_cost = float("inf")
-                    for k, cand in lost_candidates:
-                        dx = (box[0] + box[2] - cand.bbox[0] - cand.bbox[2]) / 2
-                        dy = (box[1] + box[3] - cand.bbox[1] - cand.bbox[3]) / 2
-                        dist = hypot(dx, dy)
-                        norm_dist = dist / max(1, cand.bbox[3] - cand.bbox[1])
-                        inter = max(
-                            0, min(box[2], cand.bbox[2]) - max(box[0], cand.bbox[0])
-                        ) * max(0, min(box[3], cand.bbox[3]) - max(box[1], cand.bbox[1]))
-                        area1 = (box[2] - box[0]) * (box[3] - box[1])
-                        area2 = (cand.bbox[2] - cand.bbox[0]) * (cand.bbox[3] - cand.bbox[1])
-                        union = area1 + area2 - inter
-                        iou = inter / union if union > 0 else 0
-                        if iou > 0.1 or norm_dist < 3.0:
-                            cost = norm_dist - iou * 2.0
-                            if cost < best_cost:
-                                best_cost = cost
-                                best_match = (k, cand)
-                    if best_match is not None:
-                        old_k, old_cand = best_match
-                        old = old_cand
-                        del self.memory[old_k]
+                old = self.memory.get(key) or recovered.get(key)
                 stationary = True
                 if old is not None:
                     delta = max(0.001, timestamp - old.last_seen)
@@ -149,3 +126,64 @@ class ObjectTracker:
             # Do not accumulate an unbounded removed-track history on long streams.
             tracker.removed_tracks = tracker.removed_tracks[-100:]
         return sorted(output, key=lambda track: track.track_id)
+
+    def _freeze_stationary(self, tracker, label):
+        for item in tracker.lost_tracks:
+            old = self.memory.get((label, int(item.internal_track_id)))
+            if (
+                old is None
+                or not old.stationary
+                or label == "person"
+                or item.mean is None
+            ):
+                continue
+            x1, y1, x2, y2 = old.bbox
+            height = max(0.001, y2 - y1)
+            item.mean[:4] = ((x1 + x2) / 2, (y1 + y2) / 2, (x2 - x1) / height, height)
+            item.mean[4:] = 0
+
+    def _recover_unique(self, tracker, label, observed, visible_ids, timestamp):
+        """Recover only mutually unique, overlapping lost tracks; never steal a visible ID."""
+        candidates = {}
+        for item in observed:
+            key = (label, int(item.internal_track_id))
+            if key in self.memory:
+                continue
+            a = item.tlbr
+            matches = []
+            for old_key, old in self.memory.items():
+                if old_key[0] != label or old_key[1] in visible_ids:
+                    continue
+                if label == "person" and timestamp - old.last_seen > 1:
+                    continue
+                b = old.bbox
+                intersection = max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(
+                    0, min(a[3], b[3]) - max(a[1], b[1])
+                )
+                area_a = max(0, a[2] - a[0]) * max(0, a[3] - a[1])
+                area_b = max(0, b[2] - b[0]) * max(0, b[3] - b[1])
+                union = area_a + area_b - intersection
+                if (
+                    union > 0
+                    and area_b > 0
+                    and intersection / union >= 0.5
+                    and 0.5 <= area_a / area_b <= 2
+                ):
+                    matches.append(old_key)
+            candidates[key] = matches
+        recovered = {}
+        retired = set()
+        for key, matches in candidates.items():
+            if len(matches) != 1:
+                continue
+            old_key = matches[0]
+            if sum(old_key in others for others in candidates.values()) != 1:
+                continue
+            recovered[key] = self.memory.pop(old_key)
+            retired.add(old_key[1])
+        tracker.lost_tracks = [
+            item
+            for item in tracker.lost_tracks
+            if int(item.internal_track_id) not in retired
+        ]
+        return recovered

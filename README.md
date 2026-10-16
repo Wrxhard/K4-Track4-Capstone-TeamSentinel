@@ -5,8 +5,8 @@ Mini project **RelateAnything + ByteTrack/Kalman**, giữ đồ vật qua che kh
 Based on RelateAnything by Maëlic Neau — https://github.com/Maelic/RelateAnything
 
 Luồng: detector mẫu → ByteTrack (Kalman) → RelateAnything → video và log quan hệ.
-YOLO26 Nano mặc định cung cấp box; phần chính là relation model.
-Không thêm RF-DETR riêng hoặc tối ưu các đồ khó detect.
+Launcher webcam mặc định dùng RF-DETR ONNX local; có thể chọn YOLO bằng `-Detector`.
+RelateAnything chấm quan hệ trên box của detector; ByteTrack/Kalman giữ lịch sử đồ vật.
 
 Đã có logic bỏ quên theo từng đồ vật và **web local với modal cảnh báo**.
 Hướng dẫn đầy đủ: [tải model và test cảnh báo](docs/model-and-alert-guide.md).
@@ -73,17 +73,22 @@ Nhấn **Q** hoặc **Esc** để đóng preview. Dùng thư mục output mới 
 Kết quả: `annotated.mp4` hoặc `annotated.jpg`, `events.jsonl`, `summary.json`.
 Log chứa ID, box, confidence detection, `observed`, quan hệ và score từ RelateAnything.
 Không truyền `box_scores` vào relation model để giữ score quan hệ riêng;
-không thêm fusion detection. Ngưỡng 0.3 chỉ là giá trị khởi đầu cho demo.
+snapshot ownership có score quan hệ và fused_score riêng. Ngưỡng 0.3 chỉ là giá trị khởi đầu cho demo.
 
 ## Khi đồ bị che khuất
 
 - ByteTrack ghép detection qua frame; Kalman dự đoán track đang chuyển động.
 - Đồ gần như đứng yên giữ box cuối để hạn chế trôi vị trí.
-- Box xám ghi `OCCLUDED`: track nhớ/dự đoán, không phải detection mới.
+- Box vàng ghi `LOST`: track nhớ/dự đoán, không phải detection mới.
 - Quan hệ cũ có nhãn `stale` và tuổi dữ liệu; không suy luận mới trên box dự đoán.
 - Khi nhìn lại và ghép thành công, dùng lại ID và cập nhật quan hệ.
 - Hết khoảng giữ thì bỏ track. ByteTrack không có appearance Re-ID nên có thể đổi ID
   khi che quá lâu hoặc nhiều đồ giao cắt.
+
+Đã sửa nối lại ID sau che khuất: Kalman của đồ đứng yên được giữ tại box cuối;
+chỉ phục hồi ID khi match cùng lớp, đủ chồng lấn và duy nhất theo cả hai chiều.
+Box confidence thấp được giữ để nối track đã có, không dùng để xác lập ownership mới.
+`events.jsonl` có cả detections và tracks để phân biệt detector bỏ sót với tracker mất dấu.
 
 Đồ vật cần được xác lập chủ qua ít nhất 2 kết quả mới của holding/carrying/wearing/using,
 score >= 0.5, và không có ứng viên ngang điểm. Quan hệ near/beside không gán chủ.

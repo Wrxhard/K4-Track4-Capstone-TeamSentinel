@@ -55,6 +55,12 @@ def parser():
     cli.add_argument("--camera-fps", type=float, default=30)
     cli.add_argument("--detector-size", type=int, default=640)
     cli.add_argument(
+        "--cpu-threads",
+        type=int,
+        default=0,
+        help="0 selects 2 CPU dispatch threads on CUDA, 4 on CPU",
+    )
+    cli.add_argument(
         "--no-record",
         action="store_true",
         help="Avoid MP4 encoding during live camera tests",
@@ -94,6 +100,7 @@ def validate(args):
         not math.isfinite(args.camera_fps)
         or args.camera_fps <= 0
         or args.detector_size < 32
+        or args.cpu_threads < 0
     ):
         raise ValueError("Invalid camera FPS or detector size")
     AbandonmentMonitor(
@@ -114,6 +121,7 @@ class RFDetrDetector:
         device="cpu",
     ):
         import json
+
         import onnxruntime as ort
 
         self.conf = conf
@@ -141,32 +149,35 @@ class RFDetrDetector:
 
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        opts.intra_op_num_threads = os.cpu_count() or 8
+        opts.intra_op_num_threads = (
+            2 if device.startswith("cuda") else min(4, os.cpu_count() or 4)
+        )
         opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         if device.startswith("cuda"):
             try:
                 import torch
+
                 torch_lib = Path(torch.__file__).parent / "lib"
                 if torch_lib.is_dir():
-                    os.add_dll_directory(str(torch_lib))
-                    os.environ["PATH"] = str(torch_lib) + os.pathsep + os.environ.get("PATH", "")
-            except Exception:
-                pass
+                    if hasattr(os, "add_dll_directory"):
+                        self._torch_dll_directory = os.add_dll_directory(str(torch_lib))
+                    os.environ["PATH"] = (
+                        str(torch_lib) + os.pathsep + os.environ.get("PATH", "")
+                    )
+            except (ImportError, OSError) as error:
+                print(f"Could not prepare CUDA DLL search path: {error}", flush=True)
 
         providers = (
             ["CUDAExecutionProvider", "CPUExecutionProvider"]
             if device.startswith("cuda")
             else ["CPUExecutionProvider"]
         )
-        try:
-            self.session = ort.InferenceSession(
-                str(model_path), opts, providers=providers
-            )
-        except Exception:
-            self.session = ort.InferenceSession(
-                str(model_path), opts, providers=["CPUExecutionProvider"]
-            )
+        self.session = ort.InferenceSession(str(model_path), opts, providers=providers)
         active_provider = self.session.get_providers()[0]
+        if device.startswith("cuda") and active_provider != "CUDAExecutionProvider":
+            raise RuntimeError(
+                "RF-DETR CUDA provider did not start. Check onnxruntime-gpu and CUDA DLLs; select --device cpu to run on CPU."
+            )
         print(f"RF-DETR ONNX provider: {active_provider}", flush=True)
 
         self.input_name = self.session.get_inputs()[0].name
@@ -175,7 +186,9 @@ class RFDetrDetector:
         self.input_w = shape[3] if len(shape) > 3 and isinstance(shape[3], int) else 384
         import numpy as np
 
-        self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 3, 1, 1)
+        self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(
+            1, 3, 1, 1
+        )
         self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 3, 1, 1)
 
     def detect(self, frame):
@@ -185,10 +198,10 @@ class RFDetrDetector:
         h_orig, w_orig = frame.shape[:2]
         resized = cv2.resize(frame, (self.input_w, self.input_h))
         rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-        inp = ((rgb.astype(np.float32) / 255.0).transpose(2, 0, 1)[None] - self.mean) / self.std
-        dets, labels = self.session.run(
-            None, {self.input_name: inp.astype(np.float32)}
-        )
+        inp = (
+            (rgb.astype(np.float32) / 255.0).transpose(2, 0, 1)[None] - self.mean
+        ) / self.std
+        dets, labels = self.session.run(None, {self.input_name: inp.astype(np.float32)})
         scores = 1.0 / (1.0 + np.exp(-labels[0]))
         cls_scores = scores[:, : len(self.class_names)]
         best_cls = cls_scores.argmax(axis=1)
@@ -230,13 +243,17 @@ class Models:
             + (f" ({torch.cuda.get_device_name(0)})" if self.device != "cpu" else ""),
             flush=True,
         )
-        torch.set_num_threads(os.cpu_count() or 8)
+        self.cpu_threads = args.cpu_threads or (
+            2 if self.device != "cpu" else min(4, os.cpu_count() or 4)
+        )
+        torch.set_num_threads(self.cpu_threads)
         if self.device != "cpu":
             torch.backends.cudnn.benchmark = True
         detector_str = str(args.detector).lower()
-        self.is_onnx_detector = (
-            detector_str.endswith(".onnx")
-            or detector_str in ("rf-detr", "rfdetr", "r-detr")
+        self.is_onnx_detector = detector_str.endswith(".onnx") or detector_str in (
+            "rf-detr",
+            "rfdetr",
+            "r-detr",
         )
         if self.is_onnx_detector:
             model_path = (
@@ -246,7 +263,7 @@ class Models:
             )
             self.detector = RFDetrDetector(
                 model_path=model_path,
-                conf=args.det_confidence,
+                conf=min(0.1, args.det_confidence),
                 max_det=args.max_boxes,
                 device=self.device,
             )
@@ -281,7 +298,7 @@ class Models:
             frame,
             device=self.device,
             verbose=False,
-            conf=self.confidence,
+            conf=min(0.1, self.confidence),
             max_det=self.max_boxes,
             imgsz=self.detector_size,
         )[0]
@@ -477,7 +494,9 @@ def run(args, models=None):
             ok, frame = latest_camera.read()
             if not ok:
                 raise RuntimeError("Camera stopped while loading model")
-        tracker = ObjectTracker(fps, args.hold_seconds)
+        tracker = ObjectTracker(
+            fps, args.hold_seconds, new_track_confidence=max(0.2, args.det_confidence)
+        )
         monitor = AbandonmentMonitor(
             args.exit_seconds,
             args.unattended_seconds,
@@ -534,7 +553,11 @@ def run(args, models=None):
                     if d.label == "person" or d.label in PERSONAL_ITEMS
                 ]
                 tracks = tracker.update(detections, timestamp)
-                inputs = relation_inputs(tracks)[: args.max_boxes]
+                inputs = [
+                    t
+                    for t in relation_inputs(tracks)
+                    if t.confidence >= args.det_confidence
+                ][: args.max_boxes]
                 relation_ms = 0.0
                 if (
                     index % args.relation_every == 0
@@ -684,6 +707,7 @@ def run(args, models=None):
                             "frame": index,
                             "timestamp": timestamp,
                             "tracks": [asdict(t) for t in tracks],
+                            "detections": [asdict(d) for d in detections],
                             "relations": edges,
                             "objects": objects,
                             "metrics": metrics,

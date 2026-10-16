@@ -36,6 +36,36 @@ class FakeModels:
 
 
 class DemoTests(unittest.TestCase):
+    def test_detector_keeps_weak_boxes_for_tracking_association(self):
+        from demo import Models
+
+        model = Models.__new__(Models)
+        model.is_onnx_detector = False
+        model.device = "cpu"
+        model.confidence = 0.35
+        model.max_boxes = 16
+        model.detector_size = 640
+
+        def predict(frame, **kwargs):
+            self.assertLessEqual(kwargs["conf"], 0.1)
+            return [SimpleNamespace(boxes=None)]
+
+        model.detector = SimpleNamespace(predict=predict)
+        self.assertEqual(model.detect(np.zeros((10, 10, 3), dtype=np.uint8)), [])
+
+    def test_rf_detr_cuda_request_cannot_silently_use_cpu(self):
+        from demo import RFDetrDetector
+
+        session = SimpleNamespace(
+            get_providers=lambda: ["CPUExecutionProvider"],
+            get_inputs=lambda: [SimpleNamespace(name="images", shape=[1, 3, 384, 384])],
+        )
+        with (
+            patch("onnxruntime.InferenceSession", return_value=session),
+            self.assertRaisesRegex(RuntimeError, "CUDA"),
+        ):
+            RFDetrDetector(model_path="models/rf-detr.onnx", device="cuda")
+
     def test_display_does_not_stack_old_phone_or_person_on_live_boxes(self):
         tracks = [
             Track(1, "cell phone", (10, 10, 60, 100), 0.9, 0, False),
@@ -176,7 +206,6 @@ class DemoTests(unittest.TestCase):
             )
             run(args, SimpleNamespace(detect=lambda frame: []))
             self.assertTrue((output / "annotated.jpg").is_file())
-
 
     def test_rf_detr_detector_dummy_frame(self):
         from demo import RFDetrDetector
