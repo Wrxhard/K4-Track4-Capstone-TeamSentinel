@@ -800,9 +800,6 @@ def run(args, models=None):
 
 if __name__ == "__main__":
     cli = parser()
-    print(
-        "Based on RelateAnything by Ma\u00eblic Neau - https://github.com/Maelic/RelateAnything"
-    )
     try:
         result = run(cli.parse_args())
         print(json.dumps(result, indent=2))

@@ -2,8 +2,6 @@
 
 Mini project **RelateAnything + ByteTrack/Kalman**, giữ đồ vật qua che khuất ngắn.
 
-Based on RelateAnything by Maëlic Neau — https://github.com/Maelic/RelateAnything
-
 Luồng: detector mẫu → ByteTrack (Kalman) → RelateAnything → video và log quan hệ.
 Launcher webcam mặc định dùng RF-DETR ONNX local; có thể chọn YOLO bằng `-Detector`.
 RelateAnything chấm quan hệ trên box của detector; ByteTrack/Kalman giữ lịch sử đồ vật.
