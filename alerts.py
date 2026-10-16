@@ -74,12 +74,14 @@ class AbandonmentMonitor:
             item = self.items.setdefault(
                 obj.track_id, ItemState(obj.track_id, obj.label)
             )
-            if item.owner_id is None and obj.observed:
-                self._register_owner(item, obj, by_id, relations, timestamp)
-            if item.owner_id is None:
-                continue
             owner = by_id.get(item.owner_id)
             visible_owner = owner is not None and owner.observed
+            if (item.owner_id is None or not visible_owner) and obj.observed:
+                self._register_owner(item, obj, by_id, relations, timestamp)
+                owner = by_id.get(item.owner_id)
+                visible_owner = owner is not None and owner.observed
+            if item.owner_id is None:
+                continue
             if visible_owner:
                 item.missing_since = None
             elif item.missing_since is None:
@@ -87,7 +89,13 @@ class AbandonmentMonitor:
             if not obj.observed:
                 # Keep timers/history, but never fire a new alert on a predicted box.
                 continue
-            near_owner = visible_owner and self._near(owner, obj)
+            is_held = any(
+                edge["subject_id"] == item.owner_id
+                and edge["object_id"] == obj.track_id
+                and edge["predicate"] in OWNERSHIP_RELATIONS
+                for edge in relations
+            )
+            near_owner = visible_owner and (self._near(owner, obj) or is_held)
             if near_owner:
                 if item.alert_id:
                     events.append(self._event(item, timestamp, "RESOLVED", obj))
@@ -127,7 +135,7 @@ class AbandonmentMonitor:
                 and owner.observed
                 and owner.label == "person"
                 and edge["predicate"] in OWNERSHIP_RELATIONS
-                and edge["evaluated_at"] == timestamp
+                and edge.get("evaluated_at", 0) > item.last_relation_at
                 and edge["score"] >= self.owner_threshold
             ):
                 # Multimodal Confidence Fusion:

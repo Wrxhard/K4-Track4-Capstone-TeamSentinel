@@ -84,9 +84,39 @@ class ObjectTracker:
                 key = (label, local_id)
                 box = tuple(float(v) for v in item.tlbr)
                 old = self.memory.get(key)
+                if old is None:
+                    # Spatial / temporal re-identification for returning tracks of same class
+                    lost_candidates = [
+                        (k, v)
+                        for k, v in self.memory.items()
+                        if k[0] == label and k[1] not in visible_ids and k != key
+                    ]
+                    best_match = None
+                    best_cost = float("inf")
+                    for k, cand in lost_candidates:
+                        dx = (box[0] + box[2] - cand.bbox[0] - cand.bbox[2]) / 2
+                        dy = (box[1] + box[3] - cand.bbox[1] - cand.bbox[3]) / 2
+                        dist = hypot(dx, dy)
+                        norm_dist = dist / max(1, cand.bbox[3] - cand.bbox[1])
+                        inter = max(
+                            0, min(box[2], cand.bbox[2]) - max(box[0], cand.bbox[0])
+                        ) * max(0, min(box[3], cand.bbox[3]) - max(box[1], cand.bbox[1]))
+                        area1 = (box[2] - box[0]) * (box[3] - box[1])
+                        area2 = (cand.bbox[2] - cand.bbox[0]) * (cand.bbox[3] - cand.bbox[1])
+                        union = area1 + area2 - inter
+                        iou = inter / union if union > 0 else 0
+                        if iou > 0.1 or norm_dist < 3.0:
+                            cost = norm_dist - iou * 2.0
+                            if cost < best_cost:
+                                best_cost = cost
+                                best_match = (k, cand)
+                    if best_match is not None:
+                        old_k, old_cand = best_match
+                        old = old_cand
+                        del self.memory[old_k]
                 stationary = True
                 if old is not None:
-                    delta = timestamp - old.last_seen
+                    delta = max(0.001, timestamp - old.last_seen)
                     displacement = hypot(
                         (box[0] + box[2] - old.bbox[0] - old.bbox[2]) / 2,
                         (box[1] + box[3] - old.bbox[1] - old.bbox[3]) / 2,

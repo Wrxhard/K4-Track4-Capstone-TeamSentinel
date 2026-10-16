@@ -149,6 +149,7 @@ class RFDetrDetector:
                 torch_lib = Path(torch.__file__).parent / "lib"
                 if torch_lib.is_dir():
                     os.add_dll_directory(str(torch_lib))
+                    os.environ["PATH"] = str(torch_lib) + os.pathsep + os.environ.get("PATH", "")
             except Exception:
                 pass
 
