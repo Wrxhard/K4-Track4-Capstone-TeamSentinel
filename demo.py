@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import os
 import time
 from collections import deque
 from dataclasses import asdict
@@ -103,6 +104,111 @@ def validate(args):
     )
 
 
+class RFDetrDetector:
+    def __init__(
+        self,
+        model_path="models/rf-detr.onnx",
+        config_path="models/rf-detr.json",
+        conf=0.35,
+        max_det=32,
+        device="cpu",
+    ):
+        import json
+        import onnxruntime as ort
+
+        self.conf = conf
+        self.max_det = max_det
+        cfg_file = (
+            Path(config_path)
+            if Path(config_path).is_file()
+            else Path(model_path).with_suffix(".json")
+        )
+        if cfg_file.is_file():
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            self.class_names = cfg.get("class_names", [])
+        else:
+            self.class_names = [
+                "person",
+                "phone",
+                "wallet",
+                "keys",
+                "bag",
+                "laptop",
+                "dog",
+                "cat",
+            ]
+
+        opts = ort.SessionOptions()
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        opts.intra_op_num_threads = os.cpu_count() or 8
+        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        if device.startswith("cuda"):
+            try:
+                import torch
+                torch_lib = Path(torch.__file__).parent / "lib"
+                if torch_lib.is_dir():
+                    os.add_dll_directory(str(torch_lib))
+            except Exception:
+                pass
+
+        providers = (
+            ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            if device.startswith("cuda")
+            else ["CPUExecutionProvider"]
+        )
+        try:
+            self.session = ort.InferenceSession(
+                str(model_path), opts, providers=providers
+            )
+        except Exception:
+            self.session = ort.InferenceSession(
+                str(model_path), opts, providers=["CPUExecutionProvider"]
+            )
+        active_provider = self.session.get_providers()[0]
+        print(f"RF-DETR ONNX provider: {active_provider}", flush=True)
+
+        self.input_name = self.session.get_inputs()[0].name
+        shape = self.session.get_inputs()[0].shape
+        self.input_h = shape[2] if len(shape) > 2 and isinstance(shape[2], int) else 384
+        self.input_w = shape[3] if len(shape) > 3 and isinstance(shape[3], int) else 384
+        import numpy as np
+
+        self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 3, 1, 1)
+        self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 3, 1, 1)
+
+    def detect(self, frame):
+        import cv2
+        import numpy as np
+
+        h_orig, w_orig = frame.shape[:2]
+        resized = cv2.resize(frame, (self.input_w, self.input_h))
+        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        inp = ((rgb.astype(np.float32) / 255.0).transpose(2, 0, 1)[None] - self.mean) / self.std
+        dets, labels = self.session.run(
+            None, {self.input_name: inp.astype(np.float32)}
+        )
+        scores = 1.0 / (1.0 + np.exp(-labels[0]))
+        cls_scores = scores[:, : len(self.class_names)]
+        best_cls = cls_scores.argmax(axis=1)
+        best_conf = cls_scores.max(axis=1)
+        valid = np.where(best_conf >= self.conf)[0]
+        if len(valid) == 0:
+            return []
+        valid = valid[np.argsort(-best_conf[valid])][: self.max_det]
+        out = []
+        for idx in valid:
+            c = best_cls[idx]
+            conf = float(best_conf[idx])
+            cx, cy, w, h = dets[0, idx]
+            x1 = max(0.0, float((cx - w / 2) * w_orig))
+            y1 = max(0.0, float((cy - h / 2) * h_orig))
+            x2 = min(float(w_orig), float((cx + w / 2) * w_orig))
+            y2 = min(float(h_orig), float((cy + h / 2) * h_orig))
+            out.append(Detection((x1, y1, x2, y2), conf, self.class_names[c]))
+        return out
+
+
 class Models:
     def __init__(self, args):
         import torch
@@ -123,10 +229,28 @@ class Models:
             + (f" ({torch.cuda.get_device_name(0)})" if self.device != "cpu" else ""),
             flush=True,
         )
-        torch.set_num_threads(min(4, torch.get_num_threads()))
+        torch.set_num_threads(os.cpu_count() or 8)
         if self.device != "cpu":
             torch.backends.cudnn.benchmark = True
-        self.detector = YOLO(args.detector)
+        detector_str = str(args.detector).lower()
+        self.is_onnx_detector = (
+            detector_str.endswith(".onnx")
+            or detector_str in ("rf-detr", "rfdetr", "r-detr")
+        )
+        if self.is_onnx_detector:
+            model_path = (
+                Path("models/rf-detr.onnx")
+                if detector_str in ("rf-detr", "rfdetr", "r-detr")
+                else Path(args.detector)
+            )
+            self.detector = RFDetrDetector(
+                model_path=model_path,
+                conf=args.det_confidence,
+                max_det=args.max_boxes,
+                device=self.device,
+            )
+        else:
+            self.detector = YOLO(args.detector)
         load_relation = (
             RelateAnything.from_checkpoint
             if Path(args.relation_model).is_file()
@@ -150,6 +274,8 @@ class Models:
         self.detector_size = args.detector_size
 
     def detect(self, frame):
+        if self.is_onnx_detector:
+            return self.detector.detect(frame)
         result = self.detector.predict(
             frame,
             device=self.device,
@@ -217,17 +343,20 @@ def display_tracks(tracks, timestamp):
         a = track.bbox
         obscured = False
         for current in visible:
-            if current.label != track.label:
+            if current.label != track.label and current.label != "person":
                 continue
             b = current.bbox
             intersection = max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(
                 0, min(a[3], b[3]) - max(a[1], b[1])
             )
+            area_a = max(0, a[2] - a[0]) * max(0, a[3] - a[1])
             smaller = min(
-                max(0, a[2] - a[0]) * max(0, a[3] - a[1]),
+                area_a,
                 max(0, b[2] - b[0]) * max(0, b[3] - b[1]),
             )
-            if smaller and intersection / smaller >= 0.5:
+            if (smaller and intersection / smaller >= 0.5) or (
+                area_a > 0 and intersection / area_a >= 0.35
+            ):
                 obscured = True
                 break
         if not obscured:

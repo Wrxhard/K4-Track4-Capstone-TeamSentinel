@@ -1,5 +1,4 @@
-"""Small per-object ownership memory and abandoned-object rule engine."""
-
+import math
 from dataclasses import asdict, dataclass
 from math import hypot, isfinite
 from uuid import uuid4
@@ -25,6 +24,7 @@ class ItemState:
     label: str
     owner_id: int | None = None
     owner_score: float | None = None
+    fused_score: float | None = None
     state: str = "UNASSIGNED"
     missing_since: float | None = None
     unattended_since: float | None = None
@@ -130,12 +130,19 @@ class AbandonmentMonitor:
                 and edge["evaluated_at"] == timestamp
                 and edge["score"] >= self.owner_threshold
             ):
-                candidates.append(edge)
-        candidates.sort(key=lambda edge: edge["score"], reverse=True)
+                # Multimodal Confidence Fusion:
+                # Fuses object detector confidence & person detector confidence with relationship score
+                obj_conf = max(0.01, min(1.0, float(getattr(obj, "confidence", 1.0))))
+                owner_conf = max(0.01, min(1.0, float(getattr(owner, "confidence", 1.0))))
+                fused_score = float(edge["score"]) * math.sqrt(obj_conf * owner_conf)
+                edge_copy = dict(edge)
+                edge_copy["fused_score"] = fused_score
+                candidates.append(edge_copy)
+        candidates.sort(key=lambda edge: edge["fused_score"], reverse=True)
         if not candidates:
             return
         best = candidates[0]
-        if len(candidates) > 1 and best["score"] - candidates[1]["score"] < 0.15:
+        if len(candidates) > 1 and best["fused_score"] - candidates[1]["fused_score"] < 0.15:
             item.candidate_id, item.candidate_samples = None, 0
             return
         if best["evaluated_at"] <= item.last_relation_at:
@@ -145,7 +152,9 @@ class AbandonmentMonitor:
         item.candidate_samples += 1
         item.last_relation_at = best["evaluated_at"]
         if item.candidate_samples >= self.owner_samples:
-            item.owner_id, item.owner_score = item.candidate_id, best["score"]
+            item.owner_id = item.candidate_id
+            item.owner_score = best["score"]
+            item.fused_score = best["fused_score"]
             item.state = "ATTACHED"
 
     def _near(self, owner, obj):
@@ -165,6 +174,7 @@ class AbandonmentMonitor:
             "class_name": item.label,
             "owner_id": item.owner_id,
             "owner_score": item.owner_score,
+            "fused_score": getattr(item, "fused_score", item.owner_score),
             "reason": item.reason,
             "bbox": list(obj.bbox),
         }

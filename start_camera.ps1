@@ -1,11 +1,20 @@
-param([int]$Camera = 0, [int]$Port = 8080, [double]$ExitSeconds = 5, [double]$UnattendedSeconds = 30, [string]$Device = 'auto', [int]$FPS = 30, [int]$RelationEvery = 10, [string]$Detector = 'models/yolo26l.pt')
+param([int]$Camera = 0, [int]$Port = 8080, [double]$ExitSeconds = 5, [double]$UnattendedSeconds = 30, [string]$Device = 'auto', [int]$FPS = 30, [int]$RelationEvery = 10, [string]$Detector = 'models/rf-detr.onnx', [double]$Confidence = 0.35)
 $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {
     $taskPython = Join-Path $PSScriptRoot '.venv/Scripts/python.exe'
     if (-not (Test-Path -LiteralPath $taskPython)) { throw 'Run ./setup.ps1 first.' }
+    if ($Detector -in @('rf-detr', 'rfdetr', 'r-detr', 'rf_detr')) {
+        $Detector = 'models/rf-detr.onnx'
+    }
     if (-not (Test-Path -LiteralPath $Detector -PathType Leaf)) {
-        if (Test-Path -LiteralPath 'models/yolo26n.pt' -PathType Leaf) {
+        if (Test-Path -LiteralPath 'models/rf-detr.onnx' -PathType Leaf) {
+            Write-Warning "Detector '$Detector' not found. Using 'models/rf-detr.onnx'."
+            $Detector = 'models/rf-detr.onnx'
+        } elseif (Test-Path -LiteralPath 'models/yolo26l.pt' -PathType Leaf) {
+            Write-Warning "Detector '$Detector' not found. Falling back to 'models/yolo26l.pt'."
+            $Detector = 'models/yolo26l.pt'
+        } elseif (Test-Path -LiteralPath 'models/yolo26n.pt' -PathType Leaf) {
             Write-Warning "Detector '$Detector' not found. Falling back to 'models/yolo26n.pt'."
             $Detector = 'models/yolo26n.pt'
         }
@@ -19,7 +28,7 @@ try {
     $taskPreviousTransformersOffline = $env:TRANSFORMERS_OFFLINE
     $env:HF_HUB_OFFLINE = '1'
     $env:TRANSFORMERS_OFFLINE = '1'
-    & $taskPython demo.py --source $Camera --detector $Detector --relation-model models/relsgg-vits16plus/model.pth --web --open-browser --no-preview --port $Port --exit-seconds $ExitSeconds --unattended-seconds $UnattendedSeconds --device $Device --camera-fps $FPS --relation-every $RelationEvery --latest-camera --no-record --max-boxes 16
+    & $taskPython demo.py --source $Camera --detector $Detector --relation-model models/relsgg-vits16plus/model.pth --web --open-browser --no-preview --port $Port --exit-seconds $ExitSeconds --unattended-seconds $UnattendedSeconds --device $Device --camera-fps $FPS --relation-every $RelationEvery --det-confidence $Confidence --latest-camera --no-record --max-boxes 16
     if ($LASTEXITCODE -ne 0) { throw 'Camera demo stopped with an error. See the message above.' }
 } finally {
     if (Test-Path variable:taskPreviousHubOffline) { $env:HF_HUB_OFFLINE = $taskPreviousHubOffline }

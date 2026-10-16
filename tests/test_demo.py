@@ -178,5 +178,14 @@ class DemoTests(unittest.TestCase):
             self.assertTrue((output / "annotated.jpg").is_file())
 
 
+    def test_rf_detr_detector_dummy_frame(self):
+        from demo import RFDetrDetector
+
+        if Path("models/rf-detr.onnx").is_file():
+            det = RFDetrDetector("models/rf-detr.onnx", "models/rf-detr.json")
+            res = det.detect(np.zeros((384, 384, 3), dtype=np.uint8))
+            self.assertIsInstance(res, list)
+
+
 if __name__ == "__main__":
     unittest.main()

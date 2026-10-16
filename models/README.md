@@ -2,7 +2,10 @@
 
 ```text
 models/
-├── yolo26n.pt
+├── rf-detr.onnx (RF-DETR ONNX, tối ưu cho CPU)
+├── rf-detr.json (danh sách class của RF-DETR)
+├── yolo26l.pt (khuyên dùng khi có GPU)
+├── yolo26n.pt (bản nhẹ cho CPU)
 └── relsgg-vits16plus/
     ├── model.pth
     ├── text_student.pt
@@ -12,7 +15,7 @@ models/
     └── predicate_embeddings.npz
 ```
 
-YOLO lấy bounding box; RelateAnything chấm quan hệ trên các box đó.
+Detector lấy bounding box; RelateAnything chấm quan hệ trên các box đó.
 
 ## Link tải trực tiếp
 
