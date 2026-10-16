@@ -64,6 +64,12 @@ Box mất dấu có chữ LOST màu vàng, nền nhãn tối dễ đọc; không
   khác đang trở lại trong cùng frame.
 - Nếu ByteTrack vẫn tạo native ID mới: chỉ nối với lost track cùng lớp khi IoU >= 0.5,
   tỷ lệ diện tích trong [0.5, 2] và match duy nhất theo cả hai chiều.
+- Với đồ đang di chuyển, trong tối đa 3 giây từ lần thấy cuối, so box mới với vị trí
+  Kalman dự đoán và dùng IoU >= 0.3; vẫn yêu cầu cùng lớp, tỷ lệ diện tích hợp lý,
+  match duy nhất và không lấy ID đang hiện diện. Mỗi lần thấy lại sẽ cập nhật last_seen.
+  Quá 3 giây thì kết thúc cơ chế nối chuyển động này; đồ đứng yên vẫn được giữ tối đa
+  hold_seconds (mặc định 10 giây). Đây là ghép hình học, không đảm bảo nhận dạng hai đồ
+  giống nhau giao nhau hoặc vật đổi lớp detection.
 - Giữ application ID và lịch sử ownership khi nối thành công; loại native lost track
   đã thay thế để nó không xuất hiện lại thành bản sao.
 - Người chỉ được nối lại bằng geometry trong khoảng 1 giây; không giả làm appearance Re-ID.

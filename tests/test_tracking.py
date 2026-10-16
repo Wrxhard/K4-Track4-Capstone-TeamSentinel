@@ -8,6 +8,99 @@ def bag(x=100):
 
 
 class TrackingTests(unittest.TestCase):
+    def test_relaxed_motion_recovery_expires_after_three_seconds(self):
+        tracker = ObjectTracker(fps=30)
+        for i in range(10):
+            original = tracker.update(
+                [Detection((100 + i * 3, 100, 140 + i * 3, 140), 0.6, "phone")],
+                i / 30,
+            )[0]
+        tracker.update([], 3.3)
+        returned = tracker.update([Detection((152, 100, 192, 140), 0.4, "phone")], 3.31)
+        self.assertNotEqual(
+            next(t for t in returned if t.observed).track_id, original.track_id
+        )
+
+    def test_motion_recovery_does_not_merge_ambiguous_phones(self):
+        tracker = ObjectTracker(fps=30)
+        for i in range(10):
+            originals = tracker.update(
+                [
+                    Detection((x + i * 3, 100, x + 40 + i * 3, 140), 0.6, "phone")
+                    for x in (100, 140)
+                ],
+                i / 30,
+            )
+        tracker.update([], 10 / 30)
+        returned = tracker.update(
+            [Detection((152, 100, 192, 140), 0.4, "phone")], 11 / 30
+        )
+        self.assertNotIn(
+            next(t for t in returned if t.observed).track_id,
+            {t.track_id for t in originals},
+        )
+
+    def test_moving_object_keeps_id_when_returning_within_three_seconds(self):
+        tracker = ObjectTracker(fps=30)
+        for i in range(10):
+            original = tracker.update(
+                [Detection((100 + i * 3, 100, 140 + i * 3, 140), 0.6, "phone")],
+                i / 30,
+            )[0]
+        tracker.update([], 3.0)
+        returned = tracker.update([Detection((152, 100, 192, 140), 0.4, "phone")], 3.1)
+        visible = next(t for t in returned if t.observed)
+        self.assertEqual(visible.track_id, original.track_id)
+
+    def test_moving_phone_recovery_preserves_owner_and_alerts_without_new_relation(
+        self,
+    ):
+        from alerts import AbandonmentMonitor
+
+        tracker = ObjectTracker(fps=30)
+        monitor = AbandonmentMonitor(exit_seconds=3, owner_samples=1)
+        for i in range(10):
+            tracks = tracker.update(
+                [
+                    Detection((0, 0, 60, 180), 0.9, "person"),
+                    Detection((100 + i * 3, 100, 140 + i * 3, 140), 0.6, "phone"),
+                ],
+                i / 30,
+            )
+            owner = next(t for t in tracks if t.label == "person")
+            phone = next(t for t in tracks if t.label == "phone")
+            monitor.update(
+                tracks,
+                [
+                    {
+                        "subject_id": owner.track_id,
+                        "object_id": phone.track_id,
+                        "predicate": "holding",
+                        "score": 0.8,
+                        "evaluated_at": i / 30,
+                    }
+                ],
+                i / 30,
+            )
+        monitor.update(tracker.update([], 10 / 30), [], 10 / 30)
+        returned = tracker.update(
+            [Detection((152, 100, 192, 140), 0.4, "phone")], 11 / 30
+        )
+        visible_phone = next(t for t in returned if t.label == "phone" and t.observed)
+        self.assertEqual(visible_phone.track_id, phone.track_id)
+        monitor.update(returned, [], 11 / 30)
+        events = []
+        for i in range(12, 120):
+            tracks = tracker.update(
+                [Detection((152, 100, 192, 140), 0.4, "phone")], i / 30
+            )
+            events.extend(monitor.update(tracks, [], i / 30))
+        alerts = [event for event in events if event["type"] == "ALERT"]
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["owner_id"], owner.track_id)
+        self.assertEqual(alerts[0]["reason"], "OWNER_LEFT_CAMERA")
+        self.assertEqual(alerts[0]["owner_score"], 0.8)
+
     def test_new_object_does_not_take_id_from_same_frame_returning_object(self):
         tracker = ObjectTracker(fps=30)
         original = tracker.update([bag(100)], 0)[0]

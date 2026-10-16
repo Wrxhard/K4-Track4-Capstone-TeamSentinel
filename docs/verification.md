@@ -1,5 +1,21 @@
 # Kết quả kiểm tra — 16/10/2026
 
+## Điện thoại còn lại sau khi chủ rời khung hình
+
+Log local `outputs/20261016-213326/events.jsonl` cho thấy phone #11 có owner #1,
+nhưng khi di chuyển lúc chủ rời đi lại thành #14, UNASSIGNED. Không có score sở hữu
+mới để gán chủ cho ID mới, nên không phát cảnh báo.
+
+Phát lại detection và relation đã ghi ở đoạn 130–145 giây, ánh xạ endpoint relation
+bằng box cùng lớp: bản trước không có alert; bản sửa giữ ID và phát đúng một
+OWNER_LEFT_CAMERA tại 137.87 giây, sau khi chủ mất dấu từ 132.84 giây; score lịch sử
+holding 0.6501 được giữ. Đây là replay kết quả model đã lưu, không chạy lại model/camera.
+
+Sửa nối track chuyển động theo Kalman trong 3 giây, kiểm tra duy nhất hai chiều.
+Test bao gồm giữ ID trong 3 giây, kết thúc cửa sổ nối chuyển động sau 3 giây, không
+gộp hai điện thoại mơ hồ và giữ ownership để cảnh báo khi không có relation mới.
+Kết quả: 37/37 unittest đạt; Ruff check và git diff --check đạt.
+
 ## Kiểm tra GPU và sửa mất ID sau che khuất
 
 Đã kiểm tra thực torch 2.11.0+cu128 trên GTX 1650 4 GB; phép nhân tensor CUDA đạt.

@@ -85,6 +85,8 @@ snapshot ownership có score quan hệ và fused_score riêng. Ngưỡng 0.3 ch�
 
 Đã sửa nối lại ID sau che khuất: Kalman của đồ đứng yên được giữ tại box cuối;
 chỉ phục hồi ID khi match cùng lớp, đủ chồng lấn và duy nhất theo cả hai chiều.
+Vật đang di chuyển bị mất detection tối đa 3 giây được nối theo vị trí Kalman dự đoán;
+khi nối lại, giữ ID, chủ sở hữu và score lịch sử để tiếp tục cảnh báo nếu chủ đã rời đi.
 Box confidence thấp được giữ để nối track đã có, không dùng để xác lập ownership mới.
 `events.jsonl` có cả detections và tracks để phân biệt detector bỏ sót với tracker mất dấu.
 

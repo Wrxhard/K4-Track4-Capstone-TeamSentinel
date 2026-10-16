@@ -144,6 +144,9 @@ class ObjectTracker:
 
     def _recover_unique(self, tracker, label, observed, visible_ids, timestamp):
         """Recover only mutually unique, overlapping lost tracks; never steal a visible ID."""
+        predictions = {
+            int(item.internal_track_id): item.tlbr for item in tracker.lost_tracks
+        }
         candidates = {}
         for item in observed:
             key = (label, int(item.internal_track_id))
@@ -157,6 +160,17 @@ class ObjectTracker:
                 if label == "person" and timestamp - old.last_seen > 1:
                     continue
                 b = old.bbox
+                min_iou = 0.5
+                if (
+                    label != "person"
+                    and not old.stationary
+                    and timestamp - old.last_seen <= 3
+                    and old_key[1] in predictions
+                ):
+                    # During a short moving gap, compare with the current Kalman
+                    # prediction, not the last observed position left behind.
+                    b = predictions[old_key[1]]
+                    min_iou = 0.3
                 intersection = max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(
                     0, min(a[3], b[3]) - max(a[1], b[1])
                 )
@@ -166,7 +180,7 @@ class ObjectTracker:
                 if (
                     union > 0
                     and area_b > 0
-                    and intersection / union >= 0.5
+                    and intersection / union >= min_iou
                     and 0.5 <= area_a / area_b <= 2
                 ):
                     matches.append(old_key)
