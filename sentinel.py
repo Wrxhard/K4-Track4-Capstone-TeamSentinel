@@ -125,6 +125,15 @@ class ObjectTracker:
                     output.append(replace(old, bbox=box, observed=False))
             # Do not accumulate an unbounded removed-track history on long streams.
             tracker.removed_tracks = tracker.removed_tracks[-100:]
+        # ByteTrack can remove an unconfirmed native track after one missed frame.
+        # Keep the application track visible to the ownership monitor until our
+        # elapsed-time retention expires, even without a native lost-track entry.
+        emitted = {track.track_id for track in output}
+        output.extend(
+            replace(track, observed=False)
+            for track in self.memory.values()
+            if track.track_id not in emitted
+        )
         return sorted(output, key=lambda track: track.track_id)
 
     def _freeze_stationary(self, tracker, label):
@@ -161,15 +170,12 @@ class ObjectTracker:
                     continue
                 b = old.bbox
                 min_iou = 0.5
-                if (
-                    label != "person"
-                    and not old.stationary
-                    and timestamp - old.last_seen <= 3
-                    and old_key[1] in predictions
-                ):
-                    # During a short moving gap, compare with the current Kalman
-                    # prediction, not the last observed position left behind.
-                    b = predictions[old_key[1]]
+                if label != "person" and timestamp - old.last_seen <= 3:
+                    # A previously stationary object may have just started moving.
+                    # Removed/unconfirmed native tracks have no prediction; their
+                    # last observed box still participates in short-gap recovery.
+                    if not old.stationary:
+                        b = predictions.get(old_key[1], old.bbox)
                     min_iou = 0.3
                 intersection = max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(
                     0, min(a[3], b[3]) - max(a[1], b[1])

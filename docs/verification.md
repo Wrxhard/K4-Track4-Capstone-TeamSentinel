@@ -1,5 +1,16 @@
 # Kết quả kiểm tra — 16/10/2026
 
+## Mất detection 1–2 frame rồi đổi ID liên tiếp
+
+Tiến trình webcam mở lúc 21:33 chưa nạp bản sửa lưu lúc 21:41. Ngoài ra, replay đoạn
+490–498 giây của log local phát hiện một nhánh còn lỗi: vật vừa di chuyển từ trạng thái
+đứng yên và native track chưa xác nhận bị bỏ. Bản 4db310d sinh 7 ID phone trong đoạn này;
+bản sửa tiếp giữ 1 ID, sử dụng cùng detection đã ghi, không chạy lại model.
+
+Áp dụng cửa sổ nối 3 giây cho cả vật vừa di chuyển; giữ track ứng dụng ở observed=false
+qua frame ByteTrack không còn native track, để bảo toàn owner và score. Test hồi quy
+kiểm tra nhiều lần mất một frame, giữ owner, sau đó phát đúng một OWNER_LEFT_CAMERA.
+
 ## Điện thoại còn lại sau khi chủ rời khung hình
 
 Log local `outputs/20261016-213326/events.jsonl` cho thấy phone #11 có owner #1,

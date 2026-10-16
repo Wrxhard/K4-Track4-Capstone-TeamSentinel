@@ -8,6 +8,79 @@ def bag(x=100):
 
 
 class TrackingTests(unittest.TestCase):
+    def test_phone_starting_to_move_keeps_id_after_one_missing_frame(self):
+        tracker = ObjectTracker(fps=30)
+        for i in range(4):
+            original = tracker.update(
+                [Detection((100, 100, 200, 250), 0.4, "phone")], i / 30
+            )[0]
+        tracker.update([], 4 / 30)
+        returned = tracker.update(
+            [Detection((140, 100, 240, 250), 0.4, "phone")], 5 / 30
+        )
+        self.assertEqual(
+            next(t for t in returned if t.observed).track_id, original.track_id
+        )
+
+    def test_unconfirmed_phone_keeps_owner_through_native_removal(self):
+        from alerts import AbandonmentMonitor
+
+        tracker = ObjectTracker(fps=30)
+        monitor = AbandonmentMonitor(exit_seconds=3, owner_samples=1)
+        tracker.update([], 0)
+        tracks = tracker.update(
+            [
+                Detection((0, 0, 60, 180), 0.9, "person"),
+                Detection((100, 100, 200, 250), 0.4, "phone"),
+            ],
+            0.1,
+        )
+        owner = next(t for t in tracks if t.label == "person")
+        phone = next(t for t in tracks if t.label == "phone")
+        monitor.update(
+            tracks,
+            [
+                {
+                    "subject_id": owner.track_id,
+                    "object_id": phone.track_id,
+                    "predicate": "holding",
+                    "score": 0.8,
+                    "evaluated_at": 0.1,
+                }
+            ],
+            0.1,
+        )
+        hidden = tracker.update([], 0.2)
+        self.assertIn(phone.track_id, {t.track_id for t in hidden})
+        self.assertTrue(all(not t.observed for t in hidden))
+        monitor.update(hidden, [], 0.2)
+        # Native unconfirmed track was removed, but application history must survive.
+        for i in range(3, 9):
+            tracks = tracker.update(
+                [
+                    Detection(
+                        (100 + (i - 2) * 40, 100, 200 + (i - 2) * 40, 250), 0.4, "phone"
+                    )
+                ],
+                i / 10,
+            )
+            visible = next(t for t in tracks if t.observed)
+            self.assertEqual(visible.track_id, phone.track_id)
+            monitor.update(tracks, [], i / 10)
+            self.assertEqual(monitor.snapshot()[0]["owner_id"], owner.track_id)
+            hidden = tracker.update([], i / 10 + 0.01)
+            self.assertIn(phone.track_id, {t.track_id for t in hidden})
+            self.assertTrue(all(not t.observed for t in hidden))
+            monitor.update(hidden, [], i / 10 + 0.01)
+        events = []
+        for i in range(9, 40):
+            tracks = tracker.update(
+                [Detection((340, 100, 440, 250), 0.4, "phone")], i / 10
+            )
+            events.extend(monitor.update(tracks, [], i / 10))
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["reason"], "OWNER_LEFT_CAMERA")
+
     def test_relaxed_motion_recovery_expires_after_three_seconds(self):
         tracker = ObjectTracker(fps=30)
         for i in range(10):
