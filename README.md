@@ -8,6 +8,22 @@ Luồng: detector mẫu → ByteTrack (Kalman) → RelateAnything → video và 
 YOLO26 Nano mặc định cung cấp box; phần chính là relation model.
 Không thêm RF-DETR riêng hoặc tối ưu các đồ khó detect.
 
+Đã có logic bỏ quên theo từng đồ vật và **web local với modal cảnh báo**.
+Hướng dẫn đầy đủ: [tải model và test cảnh báo](docs/model-and-alert-guide.md).
+
+**Test webcam với model bạn tải:** đặt file theo [models/README.md](models/README.md),
+rồi chạy `./start_camera.ps1`. Lệnh bật webcam thật, nạp model local và mở trang cảnh báo;
+không cần đưa file qua form upload hoặc tải model lại khi chạy.
+
+Thử modal ngay, không cần tải model:
+
+```powershell
+./.venv/Scripts/python.exe simulate.py
+```
+
+Mở http://127.0.0.1:8080. Đây là dữ liệu mô phỏng; sau khoảng 5 giây có cảnh báo
+chủ rời đi trong khi người thứ hai vẫn còn.
+
 ## Cài đặt trên Windows
 
 Cần Python 3.12+ và Git. Trong PowerShell tại thư mục dự án:
@@ -64,9 +80,13 @@ không thêm fusion detection. Ngưỡng 0.3 chỉ là giá trị khởi đầu 
 - Hết khoảng giữ thì bỏ track. ByteTrack không có appearance Re-ID nên có thể đổi ID
   khi che quá lâu hoặc nhiều đồ giao cắt.
 
-Đây là demo quan hệ + tracking. Chưa có máy trạng thái xác nhận bỏ quên,
-ownership bền vững hoặc hệ thống cảnh báo của PRD đầy đủ.
-[Thiết kế thu gọn](docs/simple-demo-design.md) thay thế thiết kế SAOD cũ.
+Đồ vật cần được xác lập chủ qua ít nhất 2 kết quả mới của holding/carrying/wearing/using,
+score >= 0.5, và không có ứng viên ngang điểm. Quan hệ near/beside không gán chủ.
+Sau đó chủ mất dấu >= 3 giây hoặc đồ đứng yên tách chủ >= 30 giây sẽ cảnh báo.
+Người khác còn trong hình không chặn cảnh báo. Chủ cũ không tự bị thay bằng người gần nhất.
+Đồ chưa có chủ chưa tự phát cảnh báo; box đang khuất không tạo cảnh báo mới.
+Đây là rule demo, chưa phải ownership đã kiểm định; ByteTrack có thể đổi ID.
+Xem [thiết kế thu gọn](docs/simple-demo-design.md) và phần mở rộng cảnh báo ở hướng dẫn.
 
 ## Kiểm thử
 

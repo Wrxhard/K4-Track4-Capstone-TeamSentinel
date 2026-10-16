@@ -7,6 +7,8 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
+from alerts import AbandonmentMonitor
+from dashboard import Dashboard
 from sentinel import Detection, ObjectTracker, relation_inputs
 
 
@@ -42,6 +44,19 @@ def parser():
     cli.add_argument("--max-boxes", type=int, default=32)
     cli.add_argument("--max-frames", type=int, default=0, help="0 means all frames")
     cli.add_argument("--no-preview", action="store_true")
+    cli.add_argument(
+        "--web", action="store_true", help="Serve local dashboard and alert modal"
+    )
+    cli.add_argument("--port", type=int, default=8080)
+    cli.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="Open dashboard after models have loaded",
+    )
+    cli.add_argument("--exit-seconds", type=float, default=3)
+    cli.add_argument("--unattended-seconds", type=float, default=30)
+    cli.add_argument("--owner-threshold", type=float, default=0.5)
+    cli.add_argument("--owner-samples", type=int, default=2)
     return cli
 
 
@@ -58,6 +73,14 @@ def validate(args):
             raise ValueError(f"{name} must be in [0, 1]")
     if args.output.exists():
         raise FileExistsError(f"Use a new output directory: {args.output}")
+    if not 0 <= args.port <= 65535:
+        raise ValueError("--port must be in [0,65535]")
+    AbandonmentMonitor(
+        args.exit_seconds,
+        args.unattended_seconds,
+        args.owner_threshold,
+        args.owner_samples,
+    )
 
 
 class Models:
@@ -219,7 +242,7 @@ def run(args, models=None):
         ".webp",
     }
     webcam = args.source.isdecimal()
-    capture = writer = None
+    capture = writer = dashboard = None
     try:
         if image_mode:
             frame = cv2.imread(args.source)
@@ -238,7 +261,22 @@ def run(args, models=None):
                 fps = 30.0
         models = models or Models(args)
         tracker = ObjectTracker(fps, args.hold_seconds)
+        monitor = AbandonmentMonitor(
+            args.exit_seconds,
+            args.unattended_seconds,
+            args.owner_threshold,
+            args.owner_samples,
+        )
         args.output.mkdir(parents=True, exist_ok=False)
+        evidence = args.output / "evidence"
+        evidence.mkdir()
+        if args.web:
+            dashboard = Dashboard(args.port)
+            print(f"Web dashboard: {dashboard.url}", flush=True)
+            if args.open_browser:
+                import webbrowser
+
+                webbrowser.open(dashboard.url)
         if not image_mode:
             writer = cv2.VideoWriter(
                 str(args.output / "annotated.mp4"),
@@ -249,9 +287,14 @@ def run(args, models=None):
             if not writer.isOpened():
                 raise RuntimeError("Cannot open video writer")
         cache = {}
+        alert_history = []
+        owner_images = {}
         index, previous = 0, -1.0
         started = time.monotonic()
-        with (args.output / "events.jsonl").open("x", encoding="utf-8") as log:
+        with (
+            (args.output / "events.jsonl").open("x", encoding="utf-8") as log,
+            (args.output / "alerts.jsonl").open("x", encoding="utf-8") as alert_log,
+        ):
             while True:
                 timestamp = time.monotonic() - started if webcam else index / fps
                 if capture is not None and not webcam:
@@ -287,6 +330,61 @@ def run(args, models=None):
                     for value in cache.values()
                     if value["score"] >= args.threshold
                 ]
+                # Ownership consumes all fresh model results, independent of display cutoff.
+                events = monitor.update(tracks, list(cache.values()), timestamp)
+                objects = monitor.snapshot()
+                by_id = {track.track_id: track for track in tracks}
+                active_object_ids = {obj["object_id"] for obj in objects}
+                owner_images = {
+                    key: value
+                    for key, value in owner_images.items()
+                    if key in active_object_ids
+                }
+                for obj in objects:
+                    owner = by_id.get(obj["owner_id"])
+                    if (
+                        owner is not None
+                        and owner.observed
+                        and obj["object_id"] not in owner_images
+                    ):
+                        x1, y1, x2, y2 = map(int, owner.bbox)
+                        crop = frame[
+                            max(0, y1) : min(frame.shape[0], y2),
+                            max(0, x1) : min(frame.shape[1], x2),
+                        ]
+                        path = evidence / f"owner-object-{obj['object_id']}.jpg"
+                        if crop.size and cv2.imwrite(str(path), crop):
+                            owner_images[obj["object_id"]] = str(
+                                path.relative_to(args.output)
+                            )
+                annotated = draw(frame, tracks, edges, timestamp)
+                for obj in objects:
+                    if obj["state"] == "ABANDONED":
+                        box = by_id[obj["object_id"]].bbox
+                        x1, y1, x2, y2 = map(int, box)
+                        cv2.rectangle(annotated, (x1, y1), (x2, y2), (40, 40, 240), 3)
+                        cv2.putText(
+                            annotated,
+                            "ABANDONED",
+                            (max(0, x1), max(30, y1 - 22)),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6,
+                            (40, 40, 240),
+                            2,
+                        )
+                for event in events:
+                    if event["type"] == "ALERT":
+                        path = evidence / f"alert-{event['alert_id']}.jpg"
+                        event["evidence"] = {
+                            "owner": owner_images.get(event["object_id"]),
+                            "scene": str(path.relative_to(args.output))
+                            if cv2.imwrite(str(path), annotated)
+                            else None,
+                        }
+                        alert_history.append(dict(event))
+                        alert_history = alert_history[-100:]
+                    alert_log.write(json.dumps(event, allow_nan=False) + "\n")
+                    alert_log.flush()
                 log.write(
                     json.dumps(
                         {
@@ -294,12 +392,24 @@ def run(args, models=None):
                             "timestamp": timestamp,
                             "tracks": [asdict(t) for t in tracks],
                             "relations": edges,
+                            "objects": objects,
                         },
                         allow_nan=False,
                     )
                     + "\n"
                 )
-                annotated = draw(frame, tracks, edges, timestamp)
+                if dashboard is not None:
+                    ok_jpeg, jpeg = cv2.imencode(".jpg", annotated)
+                    dashboard.publish(
+                        {
+                            "status": "running",
+                            "synthetic": bool(getattr(models, "synthetic", False)),
+                            "objects": objects,
+                            "alerts": alert_history,
+                            "timestamp": timestamp,
+                        },
+                        jpeg.tobytes() if ok_jpeg else None,
+                    )
                 if image_mode:
                     if not cv2.imwrite(str(args.output / "annotated.jpg"), annotated):
                         raise RuntimeError("Cannot save annotated image")
@@ -312,6 +422,9 @@ def run(args, models=None):
                         break
                 if image_mode or (args.max_frames and index >= args.max_frames):
                     break
+                if dashboard is not None and not webcam:
+                    # Keep offline video readable in the live web dashboard.
+                    time.sleep(max(0, started + index / fps - time.monotonic()))
                 ok, frame = capture.read()
                 if not ok:
                     break
@@ -321,16 +434,36 @@ def run(args, models=None):
             "output": str(args.output.resolve()),
             "elapsed_seconds": time.monotonic() - started,
             "hold_seconds": args.hold_seconds,
+            "alerts": len(alert_history),
         }
         (args.output / "summary.json").write_text(
             json.dumps(summary, indent=2), encoding="utf-8"
         )
+        if dashboard is not None:
+            dashboard.publish(
+                {
+                    "status": "finished",
+                    "synthetic": bool(getattr(models, "synthetic", False)),
+                    "objects": objects,
+                    "alerts": alert_history,
+                    "timestamp": timestamp,
+                }
+            )
+            if writer is not None:
+                writer.release()
+            print(
+                "Video finished. Dashboard stays open; press Ctrl+C to stop.",
+                flush=True,
+            )
+            dashboard.wait()
         return summary
     finally:
         if capture is not None:
             capture.release()
         if writer is not None:
             writer.release()
+        if dashboard is not None:
+            dashboard.close()
         if not args.no_preview:
             cv2.destroyAllWindows()
 

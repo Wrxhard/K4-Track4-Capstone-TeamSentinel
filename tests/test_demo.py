@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -35,6 +36,69 @@ class FakeModels:
 
 
 class DemoTests(unittest.TestCase):
+    def test_webcam_index_is_passed_to_capture_and_released(self):
+        frame = np.zeros((200, 240, 3), dtype=np.uint8)
+        capture = SimpleNamespace(
+            isOpened=lambda: True,
+            read=lambda: (True, frame.copy()),
+            get=lambda key: 30,
+            released=False,
+        )
+        capture.release = lambda: setattr(capture, "released", True)
+        with (
+            TemporaryDirectory() as tmp,
+            patch("cv2.VideoCapture", return_value=capture) as open_camera,
+        ):
+            args = parser().parse_args(
+                [
+                    "--source",
+                    "0",
+                    "--max-frames",
+                    "3",
+                    "--no-preview",
+                    "--output",
+                    str(Path(tmp) / "camera"),
+                ]
+            )
+            result = run(args, SimpleNamespace(detect=lambda frame: []))
+        open_camera.assert_called_once_with(0)
+        self.assertEqual(result["frames"], 3)
+        self.assertTrue(capture.released)
+
+    def test_two_person_video_alert_contains_saved_evidence(self):
+        from simulate import Scenario
+
+        with TemporaryDirectory() as tmp:
+            source, output = Path(tmp) / "scenario.mp4", Path(tmp) / "output"
+            writer = cv2.VideoWriter(
+                str(source), cv2.VideoWriter_fourcc(*"mp4v"), 10, (640, 360)
+            )
+            self.assertTrue(writer.isOpened())
+            for _ in range(70):
+                writer.write(np.zeros((360, 640, 3), dtype=np.uint8))
+            writer.release()
+            args = parser().parse_args(
+                [
+                    "--source",
+                    str(source),
+                    "--output",
+                    str(output),
+                    "--relation-every",
+                    "1",
+                    "--no-preview",
+                ]
+            )
+            run(args, Scenario())
+            events = [
+                json.loads(line)
+                for line in (output / "alerts.jsonl").read_text().splitlines()
+            ]
+            alerts = [event for event in events if event["type"] == "ALERT"]
+            self.assertEqual(len(alerts), 1)
+            self.assertEqual(alerts[0]["reason"], "OWNER_LEFT_CAMERA")
+            self.assertTrue((output / alerts[0]["evidence"]["owner"]).is_file())
+            self.assertTrue((output / alerts[0]["evidence"]["scene"]).is_file())
+
     def test_video_writes_every_frame_and_marks_occluded_relation_stale(self):
         with TemporaryDirectory() as tmp:
             source = Path(tmp) / "input.mp4"

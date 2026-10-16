@@ -1,5 +1,29 @@
 # Kết quả kiểm tra — 16/10/2026
 
+## Cập nhật cảnh báo + web + webcam launcher
+
+Kết quả cuối: 19/19 unittest đạt; Ruff check và format check đạt.
+start_camera.ps1 qua kiểm tra cú pháp và chạy thử trường hợp thiếu model:
+báo đúng các file local còn thiếu, không mở camera hoặc âm thầm tải model.
+yolo26n.pt đã được đặt ở models/ trên máy local; weights vẫn được gitignore.
+
+Đã thêm ownership dựa trên kết quả relation mới, trạng thái ATTACHED/UNATTENDED/ABANDONED,
+OWNER_LEFT_CAMERA/UNATTENDED_TIMEOUT, RESOLVED, chống lặp alert, evidence crop/frame,
+dashboard HTTP local, modal và start_camera.ps1 nhận model local.
+
+Kiểm thử mới gồm: chủ rời nhưng người khác còn lại; không cảnh báo trên box khuất;
+chủ quay lại resolve; low/near/stale relation không gán chủ; hai ứng viên mơ hồ;
+timeout khi chủ còn trong hình; đồ chuyển động/không biết chủ; HTTP page/status/frame;
+video hai người phát đúng 1 alert và lưu evidence; camera index 0 và giải phóng capture.
+
+Đã mở web bằng Chrome: modal hiển thị backpack #1, chủ #3, score 0.90,
+OWNER_LEFT_CAMERA tại 5.0 giây trong scenario mô phỏng; bấm Đã xem đóng modal,
+trạng thái Bỏ quên vẫn còn. Không dùng model thật cho scenario này.
+
+Model thật end-to-end và webcam vật lý vẫn chưa xác minh vì checkpoint chưa tải đủ.
+start_camera.ps1 kiểm tra đủ file trước khi mở camera, dùng offline mode.
+Phần phía dưới là báo cáo của bản trước, trước khi có cảnh báo/web.
+
 Môi trường thực tế: Windows, Python 3.13.6, torch 2.13.0+cpu; không có CUDA.
 Virtual environment local dùng system-site-packages sẵn có và cài riêng relsgg 1.0.0
 từ source upstream commit `197ac47d645f106e8beb79e49a3f62b91fcbe91f` với `--no-deps`.

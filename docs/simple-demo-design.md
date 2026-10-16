@@ -1,5 +1,9 @@
 # Bản đầu thu gọn — 16/10/2026
 
+> Cập nhật: người dùng đã yêu cầu bổ sung cảnh báo và web modal.
+> Phạm vi hiện hành gồm AbandonmentMonitor, dashboard local và start_camera.ps1.
+> Xem [hướng dẫn hiện hành](model-and-alert-guide.md); phần dưới lưu thiết kế demo ban đầu.
+
 Thiết kế này thay thế phạm vi bản SAOD trước theo hai yêu cầu mới nhất:
 chỉ tập trung RelateAnything, vẫn giữ tracking/Kalman khi đồ bị che khuất.
 

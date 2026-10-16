@@ -3,7 +3,11 @@
 !.env.example
 .venv/
 .vendor/
-models/
+models/**
+!models/README.md
+!models/relsgg-vits16plus/
+models/relsgg-vits16plus/**
+!models/relsgg-vits16plus/.gitkeep
 venv/
 __pycache__/
 .pytest_cache/
