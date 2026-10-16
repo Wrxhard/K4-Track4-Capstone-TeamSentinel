@@ -1,5 +1,45 @@
 # K4-Track4-Capstone-TeamSentinel
 
+## Đề tài: Giám sát khoang hành khách VinBus / VinFast Smart Cabin
+**Bài toán:** Hệ thống camera AI giám sát khoang xe thông minh — Tự động nhận diện chủ quyền đồ vật và cảnh báo hành khách bỏ quên tài sản (Lost & Found / Left Item Detection).
+* **Đơn vị gắn liền trong hệ sinh thái Vin:** **VinBus** (Xe buýt điện thông minh) và **VinFast** (Smart Cabin / Xe điện dịch vụ Xanh SM).
+* **Bối cảnh & Giá trị thực tế:**
+  Hành khách đi xe buýt điện VinBus hoặc taxi điện VinFast thường mang theo các vật dụng cá nhân (balo, túi xách, điện thoại, laptop, ví tiền). Tình trạng để quên đồ khi vội bước xuống trạm/điểm đến diễn ra rất phổ biến, gây thất lạc tài sản cho khách hàng và tốn nhiều chi phí xử lý khiếu nại cho tổng đài.
+  Hệ thống tận dụng **camera góc rộng trong khoang hành khách** để:
+  1. Tự động nhận diện hành khách nào đang cầm/đeo/dùng đồ vật nào (`holding`, `carrying`, `wearing`, `using`) thông qua mô hình quan hệ thị giác (RelateAnything).
+  2. Bám vết liên tục người và vật qua thời gian (ByteTrack + Kalman Filter), kiên cường trước việc người đi lại che khuất tầm nhìn.
+  3. Kích hoạt cảnh báo tức thì lên màn hình khoang xe hoặc báo cho tài xế ngay khi hành khách bước xuống xe (chủ rời khỏi khung hình $\ge 3$ giây) mà đồ vật vẫn còn nằm lại trên ghế.
+
+---
+
+## Bảy trụ cột kiến thức Track 4 thể hiện trong Sentinel
+
+Dự án tập trung chuyên sâu vào hai trụ cột cốt lõi: **THỜI GIAN** và **BẤT ĐỊNH**, cùng các minh chứng số đo thực nghiệm chặt chẽ:
+
+### 1. THỜI GIAN (Trụ cột cốt lõi ⭐)
+* **Khái niệm:** Đồng bộ cảm biến, tần số, độ trễ từ ảnh đến quyết định.
+* **Thể hiện trong Sentinel:**
+  * **Xử lý che khuất bằng Kalman Filter:** Trong khoang xe đông đúc, hành khách đi lại thường xuyên che khuất đồ vật. Bộ lọc Kalman duy trì quỹ đạo và vị trí dự đoán trong cửa sổ `hold_seconds = 10s` và cửa sổ nối track di chuyển 3 giây để không bị đứt đoạn nhận diện.
+  * **Tách rời tần số xử lý (Decoupled Temporal Pipeline):** Camera và Detector chạy theo thời gian thực (30 FPS), trong khi mô hình quan hệ RelateAnything nặng hơn được phân bổ chạy chu kỳ mỗi 5 frame (`--relation-every 5`) nhằm giảm độ trễ pipeline và tối ưu tài nguyên tính toán.
+  * **Bộ đếm thời gian thực cho quyết định:** Quyết định cảnh báo không dựa vào frame đơn lẻ mà kích hoạt theo bộ đếm thời gian: chủ nhân rời khỏi camera $\ge 3$ giây (`exit_seconds`), hoặc đồ vật đứng yên tách rời chủ $\ge 30$ giây (`unattended_seconds`).
+
+### 2. BẤT ĐỊNH (Trụ cột cốt lõi ⭐)
+* **Khái niệm:** Nhiễu cảm biến, độ tin cậy của đầu ra, khi nào nên nghi ngờ.
+* **Thể hiện trong Sentinel:**
+  * **Phân tầng ngưỡng tin cậy (Multi-stage Confidence):** Áp dụng ByteTrack 2 tầng: dùng box confidence cao để tạo track mới, và tận dụng box confidence thấp để duy trì track khi đồ vật bị mờ/nghiêng/khuất một phần mà không sinh ra track rác.
+  * **Khử nhiễu gán chủ sở hữu (Ambiguity Resolution):** Để xác lập một người là chủ món đồ, hệ thống yêu cầu điểm tin cậy quan hệ $\ge 0.5$ tích lũy qua ít nhất 2 lần quan sát liên tiếp (`owner_samples = 2`). Nếu có từ 2 người cùng đạt điểm tương đương, hệ thống nghi ngờ và không vội gán chủ bừa bãi.
+  * **Kiểm soát khi nghi ngờ (Doubt & Stale Handling):** Khi đồ vật bị che khuất (`observed = False`), quan hệ cũ bị đánh dấu `stale`; **tuyệt đối không chạy suy luận quan hệ mới trên box Kalman dự đoán**, và **khung cảnh báo đỏ `ABANDONED` chỉ hiển thị khi camera thực sự nhìn thấy đồ vật** (`observed = True`) để loại bỏ hoàn toàn cảnh báo ảo trôi nổi ngoài không gian.
+
+### Các trụ cột hỗ trợ khác
+* **BIỂU DIỄN:** Mã hóa thế giới thành Bounding Box, vector trạng thái động học Kalman `[x, y, a, h, vx, vy, va, vh]`, đồ thị quan hệ ngữ nghĩa `(Subject, Predicate, Object)` và máy trạng thái vòng đời vật thể (`UNASSIGNED` $\rightarrow$ `OWNED` $\rightarrow$ `OBSERVED / LOST` $\rightarrow$ `ABANDONED`).
+* **BẰNG CHỨNG:** Đo lường FPS thực tế (CPU ~1.45 FPS, GPU NVIDIA GTX 1650 chạy RF-DETR CUDA đạt 19.9 – 23.4 FPS); kiểm thử tự động 41/41 unit tests; công bố rõ giới hạn hệ thống (ByteTrack chưa có Appearance Re-ID nên có thể đổi ID nếu bị che quá 10 giây).
+* **HỌC:** Dual-model pipeline kết hợp Object Detection (RF-DETR ONNX / YOLOv8 học trên COCO) và Visual Relationship Detection (RelateAnything học trên tập quan hệ ngữ cảnh).
+* **HÌNH HỌC:** Phân loại vật đứng yên dựa trên tỷ lệ dịch chuyển tâm chuẩn hóa theo chiều cao và delta time; tính khoảng cách Euclidean tương đối (`safe_distance = 1.5`) giữa tâm người và tâm vật.
+* **DỮ LIỆU:** Ghi log chi tiết ra `events.jsonl` tách biệt detection thô và track; hỗ trợ replay chuỗi sự kiện để kiểm thử hồi quy không cần camera thật.
+
+---
+
+## Kiến trúc hệ thống
 Mini project **RelateAnything + ByteTrack/Kalman**, giữ đồ vật qua che khuất ngắn.
 
 Luồng: detector mẫu → ByteTrack (Kalman) → RelateAnything → video và log quan hệ.
