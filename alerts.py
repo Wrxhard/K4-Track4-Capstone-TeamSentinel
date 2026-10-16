@@ -25,10 +25,14 @@ class ItemState:
     owner_id: int | None = None
     owner_score: float | None = None
     fused_score: float | None = None
+    predicate: str | None = None
     state: str = "UNASSIGNED"
     missing_since: float | None = None
     unattended_since: float | None = None
     candidate_id: int | None = None
+    candidate_predicate: str | None = None
+    candidate_score: float | None = None
+    candidate_fused_score: float | None = None
     candidate_samples: int = 0
     last_relation_at: float = -1
     alert_id: str | None = None
@@ -89,12 +93,21 @@ class AbandonmentMonitor:
             if not obj.observed:
                 # Keep timers/history, but never fire a new alert on a predicted box.
                 continue
-            is_held = any(
-                edge["subject_id"] == item.owner_id
+            owner_edges = [
+                edge
+                for edge in relations
+                if edge["subject_id"] == item.owner_id
                 and edge["object_id"] == obj.track_id
                 and edge["predicate"] in OWNERSHIP_RELATIONS
-                for edge in relations
-            )
+            ]
+            if owner_edges:
+                best_edge = max(owner_edges, key=lambda edge: edge.get("score", 0))
+                item.predicate = best_edge.get("predicate", item.predicate)
+                item.owner_score = best_edge.get("score", item.owner_score)
+                obj_conf = max(0.01, min(1.0, float(getattr(obj, "confidence", 1.0))))
+                owner_conf = max(0.01, min(1.0, float(getattr(owner, "confidence", 1.0))))
+                item.fused_score = float(item.owner_score) * math.sqrt(obj_conf * owner_conf)
+            is_held = bool(owner_edges)
             near_owner = visible_owner and (self._near(owner, obj) or is_held)
             if near_owner:
                 if item.alert_id:
@@ -152,17 +165,24 @@ class AbandonmentMonitor:
         best = candidates[0]
         if len(candidates) > 1 and best["fused_score"] - candidates[1]["fused_score"] < 0.15:
             item.candidate_id, item.candidate_samples = None, 0
+            item.candidate_predicate = None
+            item.candidate_score = None
+            item.candidate_fused_score = None
             return
         if best["evaluated_at"] <= item.last_relation_at:
             return
         if item.candidate_id != best["subject_id"]:
             item.candidate_id, item.candidate_samples = best["subject_id"], 0
+        item.candidate_predicate = best.get("predicate")
+        item.candidate_score = best.get("score")
+        item.candidate_fused_score = best.get("fused_score")
         item.candidate_samples += 1
         item.last_relation_at = best["evaluated_at"]
         if item.candidate_samples >= self.owner_samples:
             item.owner_id = item.candidate_id
             item.owner_score = best["score"]
             item.fused_score = best["fused_score"]
+            item.predicate = best.get("predicate")
             item.state = "ATTACHED"
 
     def _near(self, owner, obj):
@@ -183,6 +203,7 @@ class AbandonmentMonitor:
             "owner_id": item.owner_id,
             "owner_score": item.owner_score,
             "fused_score": getattr(item, "fused_score", item.owner_score),
+            "predicate": item.predicate,
             "reason": item.reason,
             "bbox": list(obj.bbox),
         }

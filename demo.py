@@ -511,6 +511,7 @@ def run(args, models=None):
         previous_completed = started
         frame_times = deque(maxlen=30)
         metrics = {}
+        logged_states = {}
         with (
             (args.output / "events.jsonl").open("x", encoding="utf-8") as log,
             (args.output / "alerts.jsonl").open("x", encoding="utf-8") as alert_log,
@@ -566,6 +567,31 @@ def run(args, models=None):
                 # Ownership consumes all fresh model results, independent of display cutoff.
                 events = monitor.update(tracks, list(cache.values()), timestamp)
                 objects = monitor.snapshot()
+                for obj in objects:
+                    oid = obj["object_id"]
+                    curr_state = (
+                        obj.get("state"),
+                        obj.get("owner_id"),
+                        obj.get("predicate"),
+                        round(obj.get("owner_score") or 0.0, 1),
+                    )
+                    if logged_states.get(oid) != curr_state:
+                        logged_states[oid] = curr_state
+                        if obj.get("owner_id") is not None:
+                            pred = obj.get("predicate") or "near"
+                            sc = obj.get("owner_score") or 0.0
+                            fused = obj.get("fused_score") or sc
+                            print(
+                                f"[TRACK] #{oid} {obj['label']} -> Owner #{obj['owner_id']} | Relation: {pred} (score: {sc:.2f}, fused: {fused:.2f}) | {obj['state']}",
+                                flush=True,
+                            )
+                        elif obj.get("candidate_id") is not None:
+                            c_pred = obj.get("candidate_predicate") or "interacting"
+                            c_sc = obj.get("candidate_score") or 0.0
+                            print(
+                                f"[TRACK] #{oid} {obj['label']} | Candidate: Owner #{obj['candidate_id']} ({c_pred} {c_sc:.2f}) | Samples: {obj.get('candidate_samples', 0)}",
+                                flush=True,
+                            )
                 by_id = {track.track_id: track for track in tracks}
                 active_object_ids = {obj["object_id"] for obj in objects}
                 owner_images = {
@@ -616,6 +642,15 @@ def run(args, models=None):
                         }
                         alert_history.append(dict(event))
                         alert_history = alert_history[-100:]
+                        print(
+                            f"[ALERT] #{event['object_id']} {event['class_name']} ABANDONED (Reason: {event['reason']}, Owner: #{event['owner_id']}, Relation: {event.get('predicate', 'unknown')})",
+                            flush=True,
+                        )
+                    elif event["type"] == "RESOLVED":
+                        print(
+                            f"[RESOLVED] #{event['object_id']} {event['class_name']} re-attached to Owner #{event['owner_id']}",
+                            flush=True,
+                        )
                     alert_log.write(json.dumps(event, allow_nan=False) + "\n")
                     alert_log.flush()
                 completed = time.monotonic()
@@ -664,6 +699,7 @@ def run(args, models=None):
                             "status": "running",
                             "synthetic": bool(getattr(models, "synthetic", False)),
                             "objects": objects,
+                            "relations": edges,
                             "alerts": alert_history,
                             "timestamp": timestamp,
                             "metrics": metrics,
@@ -711,6 +747,7 @@ def run(args, models=None):
                     "status": "finished",
                     "synthetic": bool(getattr(models, "synthetic", False)),
                     "objects": objects,
+                    "relations": edges,
                     "alerts": alert_history,
                     "timestamp": timestamp,
                     "metrics": metrics,

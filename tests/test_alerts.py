@@ -102,6 +102,19 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(engine.update([bag()], [], 0), [])
         self.assertEqual(engine.update([bag(100)], [], 100), [])
 
+    def test_relation_predicate_and_scores_tracked_in_snapshot_and_alert(self):
+        engine = self.seed()
+        snap = engine.snapshot()[0]
+        self.assertEqual(snap["owner_id"], 1)
+        self.assertEqual(snap["predicate"], "holding")
+        self.assertAlmostEqual(snap["owner_score"], 0.9)
+        self.assertIsNotNone(snap["fused_score"])
+
+        # Alert event contains predicate
+        engine.update([bag(2)], [], 2)
+        events = engine.update([bag(5)], [], 5)
+        self.assertEqual(events[0]["predicate"], "holding")
+
 
 if __name__ == "__main__":
     unittest.main()

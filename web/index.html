@@ -4,8 +4,44 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TeamSentinel — Giám sát đồ vật</title>
 <style>
-:root{font-family:system-ui,sans-serif;color:#e8edf5;background:#0c1220;color-scheme:dark}*{box-sizing:border-box}body{margin:0}main{max-width:1160px;margin:auto;padding:28px 20px}header{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:24px}h1{font-size:24px;margin:0 0 6px}p{line-height:1.6;color:#b7c3d6;margin:8px 0}.tag{padding:8px 12px;border-radius:20px;background:#1f3049;font-size:14px}.grid{display:grid;grid-template-columns:2fr 1fr;gap:20px}.card{border:1px solid #28364b;background:#131d2e;border-radius:16px;padding:20px}.preview{padding:0;overflow:hidden;min-height:240px}img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#080e18}h2{font-size:18px;margin:0 0 16px}.item{padding:12px 0;border-top:1px solid #29354a}.state{font-size:13px;color:#aebcd2;display:block;margin-top:4px}.danger{color:#ffb2ae}.empty{color:#95a7c1}footer{margin:28px 0;font-size:13px;color:#9daec5}a{color:#a8ccff}dialog{width:min(520px,calc(100% - 32px));padding:28px;border:1px solid #e58e87;border-radius:18px;background:#172133;color:#f0f4fa;box-shadow:0 24px 90px #0008}dialog::backdrop{background:#030916bb}dialog h2{font-size:23px;color:#ffb2ae}button{min-height:44px;padding:10px 20px;border:0;border-radius:9px;background:#e7effd;color:#15213a;font:inherit;font-weight:650;cursor:pointer}button:focus-visible{outline:3px solid #78aaff;outline-offset:4px}.details{padding:16px;background:#0d1627;border-radius:10px;margin:18px 0;line-height:1.8}.subtitle{font-size:14px}.alert-row{margin-top:20px}.connection{margin-bottom:16px}.modal-actions{display:flex;justify-content:flex-end}@media(max-width:760px){.grid{grid-template-columns:1fr}header{align-items:flex-start;flex-direction:column}main{padding:20px 14px}}
-</style></head>
+:root{font-family:system-ui,sans-serif;color:#e8edf5;background:#0c1220;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0}
+main{max-width:1160px;margin:auto;padding:28px 20px}
+header{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:24px}
+h1{font-size:24px;margin:0 0 6px}
+p{line-height:1.6;color:#b7c3d6;margin:8px 0}
+.tag{padding:8px 12px;border-radius:20px;background:#1f3049;font-size:14px}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:20px}
+.card{border:1px solid #28364b;background:#131d2e;border-radius:16px;padding:20px}
+.preview{padding:0;overflow:hidden;min-height:240px}
+img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#080e18}
+h2{font-size:18px;margin:0 0 16px}
+.item{padding:12px 0;border-top:1px solid #29354a}
+.item-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rel-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:#143425;color:#4ade80;border:1px solid #235940;white-space:nowrap}
+.rel-badge.stale{background:#382c13;color:#facc15;border-color:#5c471d}
+.rel-badge.candidate{background:#18283e;color:#7dd3fc;border-color:#254162}
+.rel-badge.none{background:#1e2634;color:#94a3b8;border-color:#2f3b4e}
+.state{font-size:13px;color:#aebcd2;display:block;margin-top:4px}
+.item-sub{font-size:12px;color:#7e92ad;margin-top:3px}
+.danger{color:#ffb2ae}
+.empty{color:#95a7c1}
+footer{margin:28px 0;font-size:13px;color:#9daec5}
+a{color:#a8ccff}
+dialog{width:min(520px,calc(100% - 32px));padding:28px;border:1px solid #e58e87;border-radius:18px;background:#172133;color:#f0f4fa;box-shadow:0 24px 90px #0008}
+dialog::backdrop{background:#030916bb}
+dialog h2{font-size:23px;color:#ffb2ae}
+button{min-height:44px;padding:10px 20px;border:0;border-radius:9px;background:#e7effd;color:#15213a;font:inherit;font-weight:650;cursor:pointer}
+button:focus-visible{outline:3px solid #78aaff;outline-offset:4px}
+.details{padding:16px;background:#0d1627;border-radius:10px;margin:18px 0;line-height:1.8}
+.subtitle{font-size:14px}
+.alert-row{margin-top:20px}
+.connection{margin-bottom:16px}
+.modal-actions{display:flex;justify-content:flex-end}
+@media(max-width:760px){.grid{grid-template-columns:1fr}header{align-items:flex-start;flex-direction:column}main{padding:20px 14px}}
+</style>
+</head>
 <body><main>
 <header><div><h1>TeamSentinel</h1><p class="subtitle">Theo dõi đồ vật · Quan hệ người–đồ vật · Cảnh báo bỏ quên</p></div><span class="tag" id="status" role="status">Đang kết nối…</span></header>
 <p id="metrics" class="subtitle"></p>
@@ -18,11 +54,140 @@
 <dialog id="alert" aria-labelledby="alertTitle" aria-describedby="alertDescription"><h2 id="alertTitle">Phát hiện đồ vật bị bỏ quên</h2><p id="alertDescription"></p><div class="details" id="alertDetails"></div><p id="queue" class="subtitle"></p><div class="modal-actions"><button id="ack" autofocus>Đã xem</button></div></dialog>
 <script>
 const $=id=>document.getElementById(id), seen=new Set(), names={UNASSIGNED:'Chưa xác định chủ',ATTACHED:'Ở cùng chủ',UNATTENDED:'Tạm tách chủ',ABANDONED:'Bỏ quên',MOVING:'Đang di chuyển'};
+const relMap={holding:'Đang cầm',carrying:'Mang/xách',wearing:'Đang đeo',using:'Đang dùng',near:'Ở gần'};
 let latest=[], current=null, online=false;
-function line(title,detail,danger=false){const div=document.createElement('div');div.className='item';const strong=document.createElement('strong');strong.textContent=title;if(danger)strong.className='danger';const span=document.createElement('span');span.className='state';span.textContent=detail;div.append(strong,span);return div;}
-function showNext(){if($('alert').open)return;const pending=latest.filter(a=>!seen.has(a.alert_id));if(!pending.length)return;current=pending[0];$('alertDescription').textContent=current.reason==='OWNER_LEFT_CAMERA'?'Người chủ đã mất dấu quá thời gian chờ; đồ vật vẫn còn trong hình.':'Đồ vật đã tách khỏi người chủ quá thời gian cho phép.';$('alertDetails').textContent=`${current.class_name} #${current.object_id} · Chủ #${current.owner_id} · Score sở hữu ${current.owner_score.toFixed(2)} · Thời gian video ${current.timestamp.toFixed(1)}s`;$('queue').textContent=pending.length>1?`Còn ${pending.length-1} cảnh báo chưa xem.`:'';$('alert').showModal();}
+function line(title,detail,danger=false,badge=null,sub=null){
+  const div=document.createElement('div');div.className='item';
+  const head=document.createElement('div');head.className='item-head';
+  const strong=document.createElement('strong');strong.textContent=title;if(danger)strong.className='danger';
+  head.append(strong);
+  if(badge){
+    const badgeEl=document.createElement('span');badgeEl.className='rel-badge'+(badge.cls?' '+badge.cls:'');badgeEl.textContent=badge.text;
+    head.append(badgeEl);
+  }
+  const span=document.createElement('span');span.className='state';span.textContent=detail;
+  div.append(head,span);
+  if(sub){
+    const subEl=document.createElement('div');subEl.className='item-sub';subEl.textContent=sub;
+    div.append(subEl);
+  }
+  return div;
+}
+function showNext(){
+  if($('alert').open)return;
+  const pending=latest.filter(a=>!seen.has(a.alert_id));
+  if(!pending.length)return;
+  current=pending[0];
+  $('alertDescription').textContent=current.reason==='OWNER_LEFT_CAMERA'?'Người chủ đã mất dấu quá thời gian chờ; đồ vật vẫn còn trong hình.':'Đồ vật đã tách khỏi người chủ quá thời gian cho phép.';
+  const relStr=current.predicate?(relMap[current.predicate]||current.predicate):'holding';
+  const scoreStr=current.owner_score?current.owner_score.toFixed(2):'-';
+  const fusedStr=current.fused_score?` · Fused: ${current.fused_score.toFixed(2)}`:'';
+  $('alertDetails').textContent=`${current.class_name} #${current.object_id} · Chủ #${current.owner_id} · Quan hệ: ${relStr} (Score: ${scoreStr}${fusedStr}) · Thời gian video ${current.timestamp.toFixed(1)}s`;
+  $('queue').textContent=pending.length>1?`Còn ${pending.length-1} cảnh báo chưa xem.`:'';
+  $('alert').showModal();
+}
 $('ack').onclick=()=>{if(current)seen.add(current.alert_id);$('alert').close();showNext();};
 $('alert').addEventListener('cancel',event=>{event.preventDefault();$('ack').click();});
-async function poll(){try{const response=await fetch('/api/status',{cache:'no-store'});if(!response.ok)throw Error();const data=await response.json();online=true;if(data.metrics)$('metrics').textContent=`${data.metrics.device} | ${data.metrics.inference_fps} FPS | relation ${data.metrics.relation_ms} ms`;$('status').textContent=data.status==='finished'?'Đã kết thúc video':data.synthetic?'Demo dữ liệu mô phỏng':'Đang giám sát';$('connection').textContent=data.synthetic?'Dữ liệu mô phỏng để thử modal; không phải kết quả model thật.':'';$('objects').replaceChildren();for(const obj of data.objects){$('objects').append(line(`${obj.label} #${obj.object_id}`,`${names[obj.state]||obj.state} · ${obj.owner_id==null?'Chưa biết chủ':'Chủ #'+obj.owner_id}`,obj.state==='ABANDONED'));}if(!data.objects.length)$('objects').textContent='Chưa có đồ vật cá nhân được theo dõi.';const active=new Set(data.objects.filter(o=>o.alert_id).map(o=>o.alert_id));latest=data.alerts.filter(a=>active.has(a.alert_id));$('history').replaceChildren();for(const a of [...data.alerts].reverse())$('history').append(line(`${a.class_name} #${a.object_id} · ${a.reason}`,`Chủ #${a.owner_id} · ${a.timestamp.toFixed(1)}s · ${active.has(a.alert_id)?'Đang cảnh báo':'Đã kết thúc'}`,active.has(a.alert_id)));if(!data.alerts.length)$('history').textContent='Chưa có cảnh báo.';if(current&&!active.has(current.alert_id)&&$('alert').open){$('alert').close();current=null;}showNext();}catch(error){online=false;$('status').textContent='Mất kết nối';$('connection').textContent='Không nhận được dữ liệu. Kiểm tra tiến trình Python đang chạy.';}finally{setTimeout(poll,700);}}
+async function poll(){
+  try{
+    const response=await fetch('/api/status',{cache:'no-store'});
+    if(!response.ok)throw Error();
+    const data=await response.json();
+    online=true;
+    if(data.metrics)$('metrics').textContent=`${data.metrics.device} | ${data.metrics.inference_fps} FPS | relation ${data.metrics.relation_ms} ms`;
+    $('status').textContent=data.status==='finished'?'Đã kết thúc video':data.synthetic?'Demo dữ liệu mô phỏng':'Đang giám sát';
+    $('connection').textContent=data.synthetic?'Dữ liệu mô phỏng để thử modal; không phải kết quả model thật.':'';
+    
+    const relations=data.relations||[];
+    const relByObj={};
+    for(const edge of relations){
+      if(!relByObj[edge.object_id]||(edge.score>(relByObj[edge.object_id].score||0))){
+        relByObj[edge.object_id]=edge;
+      }
+    }
+
+    $('objects').replaceChildren();
+    for(const obj of data.objects){
+      const activeEdge=relByObj[obj.object_id];
+      let badge=null;
+      let sub=null;
+      if(obj.owner_id!=null){
+        const predicate=activeEdge?.predicate||obj.predicate||'holding';
+        const relVn=relMap[predicate]||predicate;
+        const score=activeEdge?.score??obj.owner_score;
+        const scoreText=score?score.toFixed(2):'-';
+        const isStale=activeEdge?activeEdge.stale:(obj.state!=='ATTACHED');
+        badge={
+          text:`${relVn} ${scoreText}`,
+          cls:isStale?'stale':''
+        };
+        const fusedText=obj.fused_score?` · Fused: ${obj.fused_score.toFixed(2)}`:'';
+        sub=`Quan hệ sở hữu: ${predicate} · Score: ${scoreText}${fusedText}`;
+      } else if(obj.candidate_id!=null){
+        const cPred=activeEdge?.predicate||obj.candidate_predicate||'interacting';
+        const cVn=relMap[cPred]||cPred;
+        const cScore=activeEdge?.score??obj.candidate_score;
+        const cScoreText=cScore?cScore.toFixed(2):'-';
+        badge={
+          text:`Ứng viên #${obj.candidate_id}: ${cVn} ${cScoreText}`,
+          cls:'candidate'
+        };
+        sub=`Đang tích luỹ mẫu quan hệ (${obj.candidate_samples||1} mẫu)`;
+      } else if(activeEdge){
+        const relVn=relMap[activeEdge.predicate]||activeEdge.predicate;
+        badge={
+          text:`#${activeEdge.subject_id} ${relVn} ${activeEdge.score.toFixed(2)}`,
+          cls:'candidate'
+        };
+        sub=`Tương tác với Người #${activeEdge.subject_id}`;
+      } else {
+        badge={
+          text:'Chưa có quan hệ',
+          cls:'none'
+        };
+        sub='Chưa phát hiện tương tác sở hữu';
+      }
+      $('objects').append(line(
+        `${obj.label} #${obj.object_id}`,
+        `${names[obj.state]||obj.state} · ${obj.owner_id==null?'Chưa biết chủ':'Chủ #'+obj.owner_id}`,
+        obj.state==='ABANDONED',
+        badge,
+        sub
+      ));
+    }
+    if(!data.objects.length)$('objects').textContent='Chưa có đồ vật cá nhân được theo dõi.';
+
+    const active=new Set(data.objects.filter(o=>o.alert_id).map(o=>o.alert_id));
+    latest=data.alerts.filter(a=>active.has(a.alert_id));
+    $('history').replaceChildren();
+    for(const a of [...data.alerts].reverse()){
+      const relVn=relMap[a.predicate]||a.predicate||'holding';
+      const scoreText=a.owner_score?a.owner_score.toFixed(2):'-';
+      const fusedText=a.fused_score?` · Fused: ${a.fused_score.toFixed(2)}`:'';
+      const badge=a.predicate?{text:`${relVn} ${scoreText}`,cls:'stale'}:null;
+      const sub=`Quan hệ: ${relVn} · Score: ${scoreText}${fusedText}`;
+      $('history').append(line(
+        `${a.class_name} #${a.object_id} · ${a.reason}`,
+        `Chủ #${a.owner_id} · ${a.timestamp.toFixed(1)}s · ${active.has(a.alert_id)?'Đang cảnh báo':'Đã kết thúc'}`,
+        active.has(a.alert_id),
+        badge,
+        sub
+      ));
+    }
+    if(!data.alerts.length)$('history').textContent='Chưa có cảnh báo.';
+
+    if(current&&!active.has(current.alert_id)&&$('alert').open){
+      $('alert').close();
+      current=null;
+    }
+    showNext();
+  }catch(error){
+    online=false;
+    $('status').textContent='Mất kết nối';
+    $('connection').textContent='Không nhận được dữ liệu. Kiểm tra tiến trình Python đang chạy.';
+  }finally{
+    setTimeout(poll,700);
+  }
+}
 poll();
 </script></body></html>
