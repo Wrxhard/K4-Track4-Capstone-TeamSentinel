@@ -8,6 +8,11 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("models/relsgg-vits16plus"))
+    parser.add_argument(
+        "--detector",
+        default="models/yolo26l.pt",
+        help="Detector weights to download/verify (e.g. models/yolo26l.pt or models/yolo26n.pt)",
+    )
     args = parser.parse_args()
     # Set before importing Hugging Face: avoid Xet stalls observed on this machine.
     os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
@@ -36,7 +41,7 @@ def main():
             "predicate_embeddings.npz",
         ],
     )
-    YOLO("models/yolo26n.pt")
+    YOLO(args.detector)
     print(f'Ready: --relation-model "{args.output / "model.pth"}"')
 
 

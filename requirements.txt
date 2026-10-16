@@ -1,6 +1,7 @@
 # Demo runtime. Install pinned RelateAnything separately with --no-deps (setup.ps1).
-torch==2.13.0
-torchvision==0.28.0
+# Keep a locally installed CUDA build; setup_gpu.ps1 installs the verified pair.
+torch>=2.11,<2.14
+torchvision>=0.26,<0.29
 transformers==5.17.0
 numpy==2.3.2
 Pillow==12.3.0

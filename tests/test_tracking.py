@@ -8,6 +8,21 @@ def bag(x=100):
 
 
 class TrackingTests(unittest.TestCase):
+    def test_new_detection_after_empty_scene_is_visible_immediately(self):
+        tracker = ObjectTracker(fps=30)
+        tracker.update([], 0)
+        tracker.update([Detection((0, 0, 60, 180), 0.9, "person")], 0.1)
+        tracks = tracker.update([Detection((0, 0, 60, 180), 0.9, "person"), bag()], 0.2)
+        self.assertTrue(any(t.label == "backpack" and t.observed for t in tracks))
+        shifted = tracker.update([bag(500)], 0.3)
+        self.assertTrue(any(t.label == "backpack" and t.observed for t in shifted))
+
+    def test_detection_at_configured_confidence_does_not_disappear(self):
+        tracker = ObjectTracker(fps=30)
+        tracks = tracker.update([Detection((100, 100, 140, 140), 0.3, "backpack")], 0)
+        self.assertEqual(len(tracks), 1)
+        self.assertTrue(tracks[0].observed)
+
     def test_occluded_bag_keeps_id_and_last_stationary_position(self):
         tracker = ObjectTracker(fps=10, hold_seconds=2)
         first = tracker.update([bag()], 0)[0]

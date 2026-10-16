@@ -61,17 +61,25 @@ class ObjectTracker:
                 self.trackers[label] = sv.ByteTrack(
                     frame_rate=self.fps,
                     lost_track_buffer=max(1, round(self.hold_seconds * 30)),
-                    track_activation_threshold=0.25,
+                    # ByteTrack adds 0.1 for new tracks; accept detector boxes >= .25.
+                    track_activation_threshold=0.15,
                 )
             tracker = self.trackers[label]
             tensors = np.array(
                 [(*d.bbox, d.confidence) for d in detections if d.label == label],
                 dtype=np.float32,
             ).reshape(-1, 5)
-            observed = tracker.update_with_tensors(tensors)
+            tracker.update_with_tensors(tensors)
+            # A newly seen box is still an observation before track confirmation.
+            # Internal IDs exist immediately; external IDs do not until confirmation.
+            observed = [
+                item
+                for item in tracker.tracked_tracks
+                if item.frame_id == tracker.frame_id
+            ]
             visible_ids = set()
             for item in observed:
-                local_id = int(item.external_track_id)
+                local_id = int(item.internal_track_id)
                 visible_ids.add(local_id)
                 key = (label, local_id)
                 box = tuple(float(v) for v in item.tlbr)
@@ -99,7 +107,7 @@ class ObjectTracker:
                 self.memory[key] = track
                 output.append(track)
             for item in tracker.lost_tracks:
-                local_id = int(item.external_track_id)
+                local_id = int(item.internal_track_id)
                 old = self.memory.get((label, local_id))
                 if old is not None and local_id not in visible_ids:
                     box = (

@@ -15,6 +15,11 @@ Hướng dẫn đầy đủ: [tải model và test cảnh báo](docs/model-and-a
 rồi chạy `./start_camera.ps1`. Lệnh bật webcam thật, nạp model local và mở trang cảnh báo;
 không cần đưa file qua form upload hoặc tải model lại khi chạy.
 
+**GPU và preview realtime:** xem [hướng dẫn GPU](docs/realtime-gpu.md).
+Launcher mới lấy frame webcam mới nhất, yêu cầu 30 FPS, dùng preview MJPEG
+và không encode MP4 trong phiên test live. `./start_camera.ps1 -Device cuda` bắt buộc
+dùng GPU; `auto` tự chọn nếu CUDA đã cài. Số FPS trên màn hình là số đo thực tế.
+
 Thử modal ngay, không cần tải model:
 
 ```powershell

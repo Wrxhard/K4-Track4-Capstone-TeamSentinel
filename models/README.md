@@ -16,7 +16,8 @@ YOLO lấy bounding box; RelateAnything chấm quan hệ trên các box đó.
 
 ## Link tải trực tiếp
 
-- [yolo26n.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt) → `models/yolo26n.pt`
+- [yolo26l.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l.pt) → `models/yolo26l.pt` (khuyên dùng khi có GPU)
+- [yolo26n.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt) → `models/yolo26n.pt` (bản nhẹ cho CPU)
 - [model.pth](https://huggingface.co/maelic/relsgg-vits16plus/resolve/2db90096be5217bdc7a9003c042950f45723d105/model.pth?download=true)
 - [text_student.pt](https://huggingface.co/maelic/relsgg-vits16plus/resolve/2db90096be5217bdc7a9003c042950f45723d105/text_student.pt?download=true)
 - [tokenizer.json](https://huggingface.co/maelic/relsgg-vits16plus/resolve/2db90096be5217bdc7a9003c042950f45723d105/tokenizer.json?download=true)

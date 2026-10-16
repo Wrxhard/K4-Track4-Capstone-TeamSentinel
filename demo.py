@@ -4,10 +4,12 @@ import argparse
 import json
 import math
 import time
+from collections import deque
 from dataclasses import asdict
 from pathlib import Path
 
-from alerts import AbandonmentMonitor
+from alerts import PERSONAL_ITEMS, AbandonmentMonitor
+from capture import LatestCapture
 from dashboard import Dashboard
 from sentinel import Detection, ObjectTracker, relation_inputs
 
@@ -45,6 +47,18 @@ def parser():
     cli.add_argument("--max-frames", type=int, default=0, help="0 means all frames")
     cli.add_argument("--no-preview", action="store_true")
     cli.add_argument(
+        "--latest-camera",
+        action="store_true",
+        help="Read webcam continuously and drop old buffered frames",
+    )
+    cli.add_argument("--camera-fps", type=float, default=30)
+    cli.add_argument("--detector-size", type=int, default=640)
+    cli.add_argument(
+        "--no-record",
+        action="store_true",
+        help="Avoid MP4 encoding during live camera tests",
+    )
+    cli.add_argument(
         "--web", action="store_true", help="Serve local dashboard and alert modal"
     )
     cli.add_argument("--port", type=int, default=8080)
@@ -75,6 +89,12 @@ def validate(args):
         raise FileExistsError(f"Use a new output directory: {args.output}")
     if not 0 <= args.port <= 65535:
         raise ValueError("--port must be in [0,65535]")
+    if (
+        not math.isfinite(args.camera_fps)
+        or args.camera_fps <= 0
+        or args.detector_size < 32
+    ):
+        raise ValueError("Invalid camera FPS or detector size")
     AbandonmentMonitor(
         args.exit_seconds,
         args.unattended_seconds,
@@ -94,6 +114,18 @@ class Models:
             if args.device == "auto"
             else args.device
         )
+        if self.device != "cpu" and not torch.cuda.is_available():
+            raise RuntimeError(
+                "CUDA requested but unavailable. Run setup_gpu.ps1 or select --device cpu."
+            )
+        print(
+            f"Inference device: {self.device}"
+            + (f" ({torch.cuda.get_device_name(0)})" if self.device != "cpu" else ""),
+            flush=True,
+        )
+        torch.set_num_threads(min(4, torch.get_num_threads()))
+        if self.device != "cpu":
+            torch.backends.cudnn.benchmark = True
         self.detector = YOLO(args.detector)
         load_relation = (
             RelateAnything.from_checkpoint
@@ -115,6 +147,7 @@ class Models:
         )
         self.confidence = args.det_confidence
         self.max_boxes = args.max_boxes
+        self.detector_size = args.detector_size
 
     def detect(self, frame):
         result = self.detector.predict(
@@ -123,6 +156,7 @@ class Models:
             verbose=False,
             conf=self.confidence,
             max_det=self.max_boxes,
+            imgsz=self.detector_size,
         )[0]
         if result.boxes is None:
             return []
@@ -171,30 +205,74 @@ def update_relations(cache, triplets, inputs, timestamp):
     return cache
 
 
+def display_tracks(tracks, timestamp):
+    """Keep lost tracks in logic, but avoid drawing old boxes over new observations."""
+    visible = [track for track in tracks if track.observed]
+    shown = list(visible)
+    for track in tracks:
+        if track.observed or track.label == "person":
+            continue
+        if not track.stationary and timestamp - track.last_seen > 1:
+            continue
+        a = track.bbox
+        obscured = False
+        for current in visible:
+            if current.label != track.label:
+                continue
+            b = current.bbox
+            intersection = max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(
+                0, min(a[3], b[3]) - max(a[1], b[1])
+            )
+            smaller = min(
+                max(0, a[2] - a[0]) * max(0, a[3] - a[1]),
+                max(0, b[2] - b[0]) * max(0, b[3] - b[1]),
+            )
+            if smaller and intersection / smaller >= 0.5:
+                obscured = True
+                break
+        if not obscured:
+            shown.append(track)
+    return shown
+
+
 def draw(frame, tracks, relations, timestamp):
     import cv2
 
     output = frame.copy()
+    tracks = display_tracks(tracks, timestamp)
     by_id = {t.track_id: t for t in tracks}
     for track in tracks:
-        color = (80, 210, 80) if track.observed else (150, 150, 150)
+        color = (80, 230, 110) if track.observed else (0, 210, 255)
         x1, y1, x2, y2 = map(int, track.bbox)
         cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
         status = (
             f"{track.confidence:.2f}"
             if track.observed
-            else f"OCCLUDED {timestamp - track.last_seen:.1f}s"
+            else f"LOST {timestamp - track.last_seen:.1f}s"
+        )
+        label = f"#{track.track_id} {track.label} {status}"
+        (width, height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        text_x = max(0, min(x1, frame.shape[1] - width - 8))
+        text_y = max(height + 6, min(y1 - 8, frame.shape[0] - 8))
+        cv2.rectangle(
+            output,
+            (text_x, text_y - height - 4),
+            (text_x + width + 5, text_y + 4),
+            (15, 20, 30),
+            -1,
         )
         cv2.putText(
             output,
-            f"#{track.track_id} {track.label} {status}",
-            (max(0, x1), max(18, y1 - 8)),
+            label,
+            (text_x, text_y),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             color,
             1,
         )
     for edge in relations:
+        if edge["subject_id"] not in by_id or edge["object_id"] not in by_id:
+            continue
         subject, obj = by_id[edge["subject_id"]], by_id[edge["object_id"]]
         start = (
             int((subject.bbox[0] + subject.bbox[2]) / 2),
@@ -242,7 +320,7 @@ def run(args, models=None):
         ".webp",
     }
     webcam = args.source.isdecimal()
-    capture = writer = dashboard = None
+    capture = writer = dashboard = latest_camera = None
     try:
         if image_mode:
             frame = cv2.imread(args.source)
@@ -253,13 +331,22 @@ def run(args, models=None):
             capture = cv2.VideoCapture(int(args.source) if webcam else args.source)
             if not capture.isOpened():
                 raise ValueError(f"Cannot open source: {args.source}")
+            if webcam:
+                capture.set(cv2.CAP_PROP_FPS, args.camera_fps)
+                capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             ok, frame = capture.read()
             if not ok:
                 raise ValueError("Source has no decodable frame")
             fps = capture.get(cv2.CAP_PROP_FPS)
             if not math.isfinite(fps) or fps <= 0:
                 fps = 30.0
+            if webcam and args.latest_camera:
+                latest_camera = LatestCapture(capture)
         models = models or Models(args)
+        if latest_camera is not None:
+            ok, frame = latest_camera.read()
+            if not ok:
+                raise RuntimeError("Camera stopped while loading model")
         tracker = ObjectTracker(fps, args.hold_seconds)
         monitor = AbandonmentMonitor(
             args.exit_seconds,
@@ -277,7 +364,7 @@ def run(args, models=None):
                 import webbrowser
 
                 webbrowser.open(dashboard.url)
-        if not image_mode:
+        if not image_mode and not args.no_record:
             writer = cv2.VideoWriter(
                 str(args.output / "annotated.mp4"),
                 cv2.VideoWriter_fourcc(*"mp4v"),
@@ -291,6 +378,9 @@ def run(args, models=None):
         owner_images = {}
         index, previous = 0, -1.0
         started = time.monotonic()
+        previous_completed = started
+        frame_times = deque(maxlen=30)
+        metrics = {}
         with (
             (args.output / "events.jsonl").open("x", encoding="utf-8") as log,
             (args.output / "alerts.jsonl").open("x", encoding="utf-8") as alert_log,
@@ -307,12 +397,25 @@ def run(args, models=None):
                     else timestamp
                 )
                 previous = timestamp
-                tracks = tracker.update(models.detect(frame), timestamp)
+                detections = [
+                    d
+                    for d in models.detect(frame)
+                    if d.label == "person" or d.label in PERSONAL_ITEMS
+                ]
+                tracks = tracker.update(detections, timestamp)
                 inputs = relation_inputs(tracks)[: args.max_boxes]
-                if index % args.relation_every == 0 and len(inputs) >= 2:
+                relation_ms = 0.0
+                if (
+                    index % args.relation_every == 0
+                    and len(inputs) >= 2
+                    and any(t.label == "person" for t in inputs)
+                    and any(t.label in PERSONAL_ITEMS for t in inputs)
+                ):
+                    relation_start = time.monotonic()
                     cache = update_relations(
                         cache, models.relate(frame, inputs), inputs, timestamp
                     )
+                    relation_ms = (time.monotonic() - relation_start) * 1000
                 active = {t.track_id for t in tracks}
                 cache = {
                     key: value
@@ -385,6 +488,31 @@ def run(args, models=None):
                         alert_history = alert_history[-100:]
                     alert_log.write(json.dumps(event, allow_nan=False) + "\n")
                     alert_log.flush()
+                completed = time.monotonic()
+                frame_times.append(max(0.000001, completed - previous_completed))
+                previous_completed = completed
+                metrics = {
+                    "inference_fps": round(len(frame_times) / sum(frame_times), 1),
+                    "camera_requested_fps": args.camera_fps if webcam else fps,
+                    "relation_ms": round(relation_ms, 1),
+                    "device": str(getattr(models, "device", "synthetic")),
+                }
+                cv2.rectangle(
+                    annotated,
+                    (0, annotated.shape[0] - 48),
+                    (annotated.shape[1], annotated.shape[0] - 22),
+                    (15, 20, 30),
+                    -1,
+                )
+                cv2.putText(
+                    annotated,
+                    f"{metrics['device']} | inference {metrics['inference_fps']:.1f} FPS | relation {relation_ms:.0f} ms",
+                    (8, annotated.shape[0] - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.45,
+                    (110, 240, 180),
+                    1,
+                )
                 log.write(
                     json.dumps(
                         {
@@ -393,6 +521,7 @@ def run(args, models=None):
                             "tracks": [asdict(t) for t in tracks],
                             "relations": edges,
                             "objects": objects,
+                            "metrics": metrics,
                         },
                         allow_nan=False,
                     )
@@ -407,13 +536,14 @@ def run(args, models=None):
                             "objects": objects,
                             "alerts": alert_history,
                             "timestamp": timestamp,
+                            "metrics": metrics,
                         },
                         jpeg.tobytes() if ok_jpeg else None,
                     )
                 if image_mode:
                     if not cv2.imwrite(str(args.output / "annotated.jpg"), annotated):
                         raise RuntimeError("Cannot save annotated image")
-                else:
+                elif writer is not None:
                     writer.write(annotated)
                 index += 1
                 if not args.no_preview:
@@ -425,7 +555,11 @@ def run(args, models=None):
                 if dashboard is not None and not webcam:
                     # Keep offline video readable in the live web dashboard.
                     time.sleep(max(0, started + index / fps - time.monotonic()))
-                ok, frame = capture.read()
+                ok, frame = (
+                    latest_camera.read()
+                    if latest_camera is not None
+                    else capture.read()
+                )
                 if not ok:
                     break
         summary = {
@@ -435,6 +569,8 @@ def run(args, models=None):
             "elapsed_seconds": time.monotonic() - started,
             "hold_seconds": args.hold_seconds,
             "alerts": len(alert_history),
+            "metrics": metrics,
+            "video_saved": writer is not None,
         }
         (args.output / "summary.json").write_text(
             json.dumps(summary, indent=2), encoding="utf-8"
@@ -447,6 +583,7 @@ def run(args, models=None):
                     "objects": objects,
                     "alerts": alert_history,
                     "timestamp": timestamp,
+                    "metrics": metrics,
                 }
             )
             if writer is not None:
@@ -458,6 +595,8 @@ def run(args, models=None):
             dashboard.wait()
         return summary
     finally:
+        if latest_camera is not None:
+            latest_camera.close()
         if capture is not None:
             capture.release()
         if writer is not None:

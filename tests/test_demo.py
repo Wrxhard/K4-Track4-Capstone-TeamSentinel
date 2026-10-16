@@ -8,7 +8,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from demo import parser, run, update_relations
+from demo import display_tracks, parser, run, update_relations
 from sentinel import Detection, Track
 
 
@@ -36,12 +36,23 @@ class FakeModels:
 
 
 class DemoTests(unittest.TestCase):
+    def test_display_does_not_stack_old_phone_or_person_on_live_boxes(self):
+        tracks = [
+            Track(1, "cell phone", (10, 10, 60, 100), 0.9, 0, False),
+            Track(2, "cell phone", (15, 15, 65, 105), 0.9, 1),
+            Track(3, "person", (0, 0, 100, 200), 0.9, 0, False),
+            Track(4, "backpack", (200, 100, 240, 140), 0.9, 0, False),
+        ]
+        shown = display_tracks(tracks, 1)
+        self.assertEqual({t.track_id for t in shown}, {2, 4})
+
     def test_webcam_index_is_passed_to_capture_and_released(self):
         frame = np.zeros((200, 240, 3), dtype=np.uint8)
         capture = SimpleNamespace(
             isOpened=lambda: True,
             read=lambda: (True, frame.copy()),
             get=lambda key: 30,
+            set=lambda key, value: True,
             released=False,
         )
         capture.release = lambda: setattr(capture, "released", True)

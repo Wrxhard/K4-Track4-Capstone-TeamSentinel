@@ -3,12 +3,15 @@
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Event, Lock, Thread
+from threading import Condition, Event, Lock, Thread
 
 
 class Dashboard:
     def __init__(self, port=8080):
         self.lock = Lock()
+        self.changed = Condition(self.lock)
+        self.frame_sequence = 0
+        self.closed = False
         self.status = {
             "status": "starting",
             "objects": [],
@@ -21,6 +24,53 @@ class Dashboard:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 path = self.path.split("?")[0]
+                if path == "/stream.mjpg":
+                    self.send_response(200)
+                    self.send_header(
+                        "Content-Type", "multipart/x-mixed-replace; boundary=frame"
+                    )
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    sequence = -1
+                    try:
+                        while True:
+                            with dashboard.changed:
+                                dashboard.changed.wait_for(
+                                    lambda sequence=sequence: (
+                                        dashboard.closed
+                                        or (
+                                            dashboard.jpeg
+                                            and sequence != dashboard.frame_sequence
+                                        )
+                                    ),
+                                    timeout=2,
+                                )
+                                if dashboard.closed:
+                                    break
+                                if (
+                                    not dashboard.jpeg
+                                    or sequence == dashboard.frame_sequence
+                                ):
+                                    continue
+                                jpeg, sequence = (
+                                    dashboard.jpeg,
+                                    dashboard.frame_sequence,
+                                )
+                            self.wfile.write(
+                                b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                + str(len(jpeg)).encode()
+                                + b"\r\n\r\n"
+                                + jpeg
+                                + b"\r\n"
+                            )
+                            self.wfile.flush()
+                    except (
+                        BrokenPipeError,
+                        ConnectionResetError,
+                        ConnectionAbortedError,
+                    ):
+                        pass
+                    return
                 with dashboard.lock:
                     if path == "/api/status":
                         body, content_type = (
@@ -64,6 +114,8 @@ class Dashboard:
             self.status = json.loads(json.dumps(status, allow_nan=False))
             if jpeg is not None:
                 self.jpeg = bytes(jpeg)
+                self.frame_sequence += 1
+                self.changed.notify_all()
 
     def wait(self):
         try:
@@ -72,6 +124,9 @@ class Dashboard:
             pass
 
     def close(self):
+        with self.changed:
+            self.closed = True
+            self.changed.notify_all()
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)
