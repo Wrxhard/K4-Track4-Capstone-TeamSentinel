@@ -1,0 +1,13 @@
+# Demo runtime. Install pinned RelateAnything separately with --no-deps (setup.ps1).
+torch==2.13.0
+torchvision==0.28.0
+transformers==5.17.0
+numpy==2.3.2
+Pillow==12.3.0
+opencv-python==5.0.0.93
+scipy==1.18.1
+safetensors==0.8.0
+tqdm==4.70.1
+huggingface-hub==1.32.0
+ultralytics==8.4.130
+supervision==0.30.8

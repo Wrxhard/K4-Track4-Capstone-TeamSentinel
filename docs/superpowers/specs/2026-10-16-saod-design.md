@@ -1,5 +1,8 @@
 # TeamSentinel — thiết kế mini project SAOD
 
+> BẢN PHẠM VI CŨ. Yêu cầu mới đã thu gọn thành RelateAnything + ByteTrack/Kalman.
+> Xem [thiết kế hiện hành](../../simple-demo-design.md) và README.
+
 Ngày: 16/10/2026. Trạng thái: bản thiết kế để người dùng duyệt; chưa triển khai runtime.
 
 ## 1. Mục tiêu và nguồn yêu cầu
