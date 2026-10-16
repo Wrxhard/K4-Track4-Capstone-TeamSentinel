@@ -11,7 +11,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not install demo runtime dependencies.' }
     & ./.venv/Scripts/python.exe -m pip install --no-deps 'git+https://github.com/Maelic/RelateAnything.git@197ac47d645f106e8beb79e49a3f62b91fcbe91f'
     if ($LASTEXITCODE -ne 0) { throw 'Could not install RelateAnything.' }
-    & ./.venv/Scripts/python.exe -c 'from relsgg import RelateAnything; import supervision; import cv2; print("Runtime imports OK")'
+    & ./.venv/Scripts/python.exe -c "from relsgg import RelateAnything; import supervision; import cv2; print('Runtime imports OK')"
     if ($LASTEXITCODE -ne 0) { throw 'Runtime import check failed.' }
     Write-Host 'Ready. Run: ./.venv/Scripts/python.exe demo.py --source 0'
 } finally {
